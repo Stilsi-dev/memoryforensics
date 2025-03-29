@@ -1,0 +1,18 @@
+# Core Analysis Requirements
+yara-python==4.2.3
+volatility3==2.4.1
+pefile==2023.2.7
+
+# Data Processing & Visualization
+pandas==2.0.3
+matplotlib==3.7.2
+plotly==5.15.0
+
+# Utility Packages
+python-dateutil==2.8.2
+tqdm==4.65.0  # For progress bars
+
+# Optional (for enhanced features)
+pywin32==306  # Windows-specific analysis
+capstone==5.0.1  # Advanced disassembly
+construct==2.10.68  # Binary parsing
