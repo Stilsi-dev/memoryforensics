@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Memory Forensic Analyzer - Volatility 3 Compatible
-Each analysis run creates a new folder (analysis_001, analysis_002, ...)
-Dumped process memory and report are stored in the same folder.
+Now saves reports directly as analysisReport_xxx.txt in analysis folder.
+Includes progress printing for DLL scan per process.
 """
 
 import os
@@ -10,7 +10,6 @@ import sys
 import shutil
 import argparse
 import yara
-import tempfile
 import subprocess
 from datetime import datetime
 
@@ -18,16 +17,20 @@ from datetime import datetime
 VOLATILITY_PATH = "volatility3/vol.py"
 YARA_RULES_FILE = "malware_rules.yar"
 
-def get_next_analysis_folder(base_dir="analysis"):
+SUSPICIOUS_PATHS = ["\\temp\\", "\\appdata\\", "\\programdata\\"]
+
+
+def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=".txt"):
     os.makedirs(base_dir, exist_ok=True)
-    existing = [d for d in os.listdir(base_dir)
-                if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("analysis_")]
-    numbers = [int(d.split("_")[1]) for d in existing if d.split("_")[1].isdigit()]
+    existing = [f for f in os.listdir(base_dir) if f.startswith(prefix) and f.endswith(ext)]
+    numbers = [
+        int(f[len(prefix):-len(ext)])
+        for f in existing
+        if f[len(prefix):-len(ext)].isdigit()
+    ]
     next_num = max(numbers) + 1 if numbers else 1
-    folder_name = f"analysis_{next_num:03}"
-    full_path = os.path.join(base_dir, folder_name)
-    os.makedirs(full_path, exist_ok=True)
-    return full_path
+    return os.path.join(base_dir, f"{prefix}{next_num:03}{ext}")
+
 
 class MemoryAnalyzer:
     def __init__(self, volatility_path=VOLATILITY_PATH):
@@ -82,42 +85,47 @@ class MemoryAnalyzer:
             return None
 
     def get_processes(self, memory_file):
-        print("[+] Extracting process information...")
-        output = self.run_volatility("pslist", memory_file)
-        if not output:
-            return None
+        print("[+] Extracting visible processes (pslist)...")
+        pslist_output = self.run_volatility("pslist", memory_file)
+        print("[+] Extracting all processes (psscan)...")
+        psscan_output = self.run_volatility("psscan", memory_file)
 
-        lines = output.strip().splitlines()
-        if len(lines) < 2:
-            print("[-] Unexpected output format from pslist.")
-            return None
+        def parse_processes(raw_output):
+            lines = raw_output.strip().splitlines()
+            for idx, line in enumerate(lines):
+                if line.strip().startswith("PID"):
+                    lines = lines[idx:]
+                    break
+            headers = lines[0].split()
+            procs = []
+            for line in lines[1:]:
+                parts = line.split(None, len(headers) - 1)
+                if len(parts) < 3:
+                    continue
+                procs.append({
+                    "PID": parts[0],
+                    "PPID": parts[1],
+                    "ImageFileName": parts[2],
+                    "Parent": "Unknown"
+                })
+            return procs
 
-        # Skip to header
-        for idx, line in enumerate(lines):
-            if line.strip().startswith("PID"):
-                lines = lines[idx:]
-                break
+        pslist_procs = parse_processes(pslist_output) if pslist_output else []
+        psscan_procs = parse_processes(psscan_output) if psscan_output else []
 
-        headers = lines[0].split()
-        processes = []
+        pslist_pids = {p["PID"] for p in pslist_procs}
+        psscan_map = {p["PID"]: p for p in psscan_procs}
 
-        for line in lines[1:]:
-            parts = line.split(None, len(headers) - 1)
-            if len(parts) < 3:
-                continue
-            proc = {
-                "PID": parts[0],
-                "PPID": parts[1],
-                "ImageFileName": parts[2],
-                "Parent": "Unknown"
-            }
-            processes.append(proc)
+        all_procs = []
+        for pid, proc in psscan_map.items():
+            proc["Hidden"] = "Yes" if pid not in pslist_pids else "No"
+            all_procs.append(proc)
 
-        pid_map = {p["PID"]: p["ImageFileName"] for p in processes}
-        for p in processes:
+        pid_map = {p["PID"]: p["ImageFileName"] for p in all_procs}
+        for p in all_procs:
             p["Parent"] = pid_map.get(p["PPID"], "Unknown")
 
-        return processes
+        return all_procs
 
     def detect_suspicious(self, processes):
         suspicious = []
@@ -126,30 +134,49 @@ class MemoryAnalyzer:
             flags = []
             name = p.get("ImageFileName", "").lower()
 
+            if p.get("Hidden") == "Yes":
+                flags.append("Hidden process (from psscan)")
             if any(bad in name for bad in ["mimi", "cobalt", "inject", "malware"]):
                 flags.append("Known bad process name")
             if p["Parent"].lower() not in common_parents:
                 flags.append(f"Unusual parent: {p['Parent']}")
+            if p.get("SuspiciousDLL"):
+                flags.append("Suspicious DLLs loaded")
+
             if flags:
                 p["Flags"] = ", ".join(flags)
                 suspicious.append(p)
         return suspicious
 
-    def scan_memory(self, memory_file, processes, output_dir):
+    def scan_dlls(self, memory_file, processes):
+        print("[+] Checking for suspicious DLLs...")
+        for p in processes:
+            pid = p["PID"]
+            print(f"  [*] Checking DLLs for PID {pid} ({p['ImageFileName']})...")
+            dll_output = self.run_volatility("dlllist", memory_file, ["--pid", str(pid)])
+            if not dll_output:
+                continue
+            for line in dll_output.splitlines():
+                for bad_path in SUSPICIOUS_PATHS:
+                    if bad_path in line.lower():
+                        p["SuspiciousDLL"] = True
+                        break
+        return processes
+
+    def scan_memory(self, memory_file, processes, output_dir, limit=10):
         if not self.yara_rules:
             return []
 
-        print("[+] Scanning process memory with YARA rules...")
+        print(f"[+] Scanning process memory with YARA rules (limit: {limit})...")
         matches = []
 
-        for p in processes[:10]:
+        for p in processes[:limit]:
             pid = p.get("PID")
             if not pid:
                 continue
             print(f"  [*] Scanning PID {pid} ({p['ImageFileName']})...")
 
             try:
-                # Run Volatility to dump memory
                 cmd = [
                     "python",
                     self.volatility_path,
@@ -160,16 +187,12 @@ class MemoryAnalyzer:
                 ]
                 subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-                # Look for dump files in current working directory
                 dump_files = [f for f in os.listdir(".") if f.startswith(f"pid.{pid}") and f.endswith(".dmp")]
                 for dump_file in dump_files:
                     src_path = os.path.abspath(dump_file)
                     dest_path = os.path.join(output_dir, dump_file)
-
-                    # Move to analysis folder
                     shutil.move(src_path, dest_path)
 
-                    # YARA scan
                     with open(dest_path, "rb") as f:
                         file_matches = self.yara_rules.match(data=f.read())
                         if file_matches:
@@ -177,7 +200,6 @@ class MemoryAnalyzer:
                             matches.append(p)
                             print(f"    [!] Found {len(file_matches)} YARA matches")
 
-                    # Delete after scanning
                     os.remove(dest_path)
 
             except Exception as e:
@@ -216,10 +238,12 @@ class MemoryAnalyzer:
             else:
                 f.write("No YARA rule matches found\n")
 
-            f.write("\nPROCESS LIST (First 20)\n")
+            f.write("\nPROCESS LIST\n")
             f.write("="*60 + "\n")
-            for p in data.get("processes", [])[:20]:
-                f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}\n")
+            for p in data.get("processes", []):
+                hidden_str = " (Hidden)" if p.get("Hidden") == "Yes" else ""
+                f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}{hidden_str}\n")
+
 
 def main():
     print("\n" + "="*60)
@@ -228,7 +252,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="Analyze memory dumps for malicious activity")
     parser.add_argument("-f", "--file", required=True, help="Path to the memory dump file")
-    parser.add_argument("-o", "--output", default="report.txt", help="Report file name (inside analysis folder)")
+    parser.add_argument("-o", "--output", help="Custom report filename (optional)")
+    parser.add_argument("--no-yara", action="store_true", help="Skip YARA scanning")
+    parser.add_argument("--pid-limit", type=int, default=10, help="Limit number of PIDs to scan with YARA")
     args = parser.parse_args()
 
     if not os.path.exists(args.file):
@@ -240,19 +266,24 @@ def main():
     if not analyzer.validate_paths():
         sys.exit(1)
 
-    if not analyzer.load_yara_rules():
+    if not args.no_yara and not analyzer.load_yara_rules():
         print("[!] Continuing without YARA scanning capability")
 
-    analysis_dir = get_next_analysis_folder()
-    report_path = os.path.join(analysis_dir, args.output)
+    report_path = args.output or get_next_report_filename()
 
     processes = analyzer.get_processes(args.file)
     if not processes:
         print("[-] Failed to extract process information")
         sys.exit(1)
 
+    processes = analyzer.scan_dlls(args.file, processes)
     suspicious = analyzer.detect_suspicious(processes)
-    yara_matches = analyzer.scan_memory(args.file, processes, analysis_dir)
+
+    yara_matches = []
+    if not args.no_yara:
+        yara_matches = analyzer.scan_memory(args.file, processes, os.path.dirname(report_path), limit=args.pid_limit)
+    else:
+        print("[!] Skipping YARA scan as per user request.")
 
     analyzer.generate_report({
         "memory_file": args.file,
@@ -261,7 +292,8 @@ def main():
         "yara_matches": yara_matches
     }, report_path)
 
-    print(f"\n[+] Analysis complete! Report and dumps saved to: {analysis_dir}")
+    print(f"\n[+] Analysis complete! Report saved to: {report_path}")
+
 
 if __name__ == "__main__":
     main()
