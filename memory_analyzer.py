@@ -18,7 +18,7 @@ import csv
 from datetime import datetime
 
 # Configuration
-VOLATILITY_PATH = "volatility3/vol.py"
+VOLATILITY_PATH = "volatility3/vol.exe"
 YARA_RULES_FILE = "malware_rules.yar"
 
 SUSPICIOUS_PATHS = ["\\temp\\", "\\appdata\\", "\\programdata\\"]
