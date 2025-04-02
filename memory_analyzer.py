@@ -2,10 +2,11 @@
 """
 Memory Forensic Analyzer - Volatility 3 Compatible
 Includes improvements:
-- Faster DLL scanning (only suspicious processes)
-- Optional CSV/JSON report output
-- Memory dump metadata
-- Log file for commands and errors
+- Full YARA scan (removed PID limit)
+- Structured severity ranking
+- Logs all suspicious DLL paths
+- CSV export with all relevant fields
+- Optional user context (placeholder for now)
 """
 
 import os
@@ -20,10 +21,9 @@ from datetime import datetime
 # Configuration
 VOLATILITY_PATH = "volatility3/vol.py"
 YARA_RULES_FILE = "malware_rules.yar"
-
 SUSPICIOUS_PATHS = ["\\temp\\", "\\appdata\\", "\\programdata\\"]
 
-# Helper function to get the next report filename
+
 def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=".txt"):
     os.makedirs(base_dir, exist_ok=True)
     existing = [f for f in os.listdir(base_dir) if f.startswith(prefix) and f.endswith(ext)]
@@ -35,12 +35,7 @@ def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=
     next_num = max(numbers) + 1 if numbers else 1
     return os.path.join(base_dir, f"{prefix}{next_num:03}{ext}")
 
-# Function to write logs to a log file
-def write_log(message, log_file="analysis_log.txt"):
-    with open(log_file, "a") as f:
-        f.write(f"{datetime.now()} - {message}\n")
 
-# MemoryAnalyzer class
 class MemoryAnalyzer:
     def __init__(self, volatility_path=VOLATILITY_PATH):
         self.volatility_path = volatility_path
@@ -71,8 +66,7 @@ class MemoryAnalyzer:
 
     def run_volatility(self, plugin, memory_file, extra_args=None):
         cmd = [
-            "python",
-            self.volatility_path,
+            "python", self.volatility_path,
             "-f", os.path.normpath(memory_file),
             f"windows.{plugin}"
         ]
@@ -81,16 +75,12 @@ class MemoryAnalyzer:
 
         try:
             result = subprocess.run(
-                cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                cmd, check=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
             return result.stdout
         except subprocess.CalledProcessError as e:
-            print(f"[-] Volatility command failed: {' '.join(cmd)}")
-            print(f"Error: {e.stderr}")
+            print(f"[-] Volatility error: {e.stderr}")
             return None
 
     def get_processes(self, memory_file):
@@ -99,11 +89,11 @@ class MemoryAnalyzer:
         print("[+] Extracting all processes (psscan)...")
         psscan_output = self.run_volatility("psscan", memory_file)
 
-        def parse_processes(raw_output):
-            lines = raw_output.strip().splitlines()
-            for idx, line in enumerate(lines):
-                if line.strip().startswith("PID"):
-                    lines = lines[idx:]
+        def parse(raw):
+            lines = raw.strip().splitlines()
+            for i, line in enumerate(lines):
+                if line.startswith("PID"):
+                    lines = lines[i:]
                     break
             headers = lines[0].split()
             procs = []
@@ -112,27 +102,22 @@ class MemoryAnalyzer:
                 if len(parts) < 3:
                     continue
                 procs.append({
-                    "PID": parts[0],
-                    "PPID": parts[1],
+                    "PID": parts[0], "PPID": parts[1],
                     "ImageFileName": parts[2],
-                    "Parent": "Unknown"
+                    "Parent": "Unknown", "User": "N/A"
                 })
             return procs
 
-        pslist_procs = parse_processes(pslist_output) if pslist_output else []
-        psscan_procs = parse_processes(psscan_output) if psscan_output else []
+        pslist = parse(pslist_output) if pslist_output else []
+        psscan = parse(psscan_output) if psscan_output else []
 
-        pslist_pids = {p["PID"] for p in pslist_procs}
-        psscan_map = {p["PID"]: p for p in psscan_procs}
-
+        pslist_pids = {p["PID"] for p in pslist}
+        pid_map = {p["PID"]: p["ImageFileName"] for p in psscan}
         all_procs = []
-        for pid, proc in psscan_map.items():
-            proc["Hidden"] = "Yes" if pid not in pslist_pids else "No"
-            all_procs.append(proc)
-
-        pid_map = {p["PID"]: p["ImageFileName"] for p in all_procs}
-        for p in all_procs:
+        for p in psscan:
+            p["Hidden"] = "Yes" if p["PID"] not in pslist_pids else "No"
             p["Parent"] = pid_map.get(p["PPID"], "Unknown")
+            all_procs.append(p)
 
         return all_procs
 
@@ -141,12 +126,15 @@ class MemoryAnalyzer:
         common_parents = ["explorer.exe", "svchost.exe", "services.exe", "wininit.exe"]
         for p in processes:
             flags = []
+            severity = "Low"
             name = p.get("ImageFileName", "").lower()
 
             if p.get("Hidden") == "Yes":
-                flags.append("Hidden process (from psscan)")
+                flags.append("Hidden process")
+                severity = "High"
             if any(bad in name for bad in ["mimi", "cobalt", "inject", "malware"]):
-                flags.append("Known bad process name")
+                flags.append("Known bad name")
+                severity = "Critical"
             if p["Parent"].lower() not in common_parents:
                 flags.append(f"Unusual parent: {p['Parent']}")
             if p.get("SuspiciousDLL"):
@@ -154,6 +142,7 @@ class MemoryAnalyzer:
 
             if flags:
                 p["Flags"] = ", ".join(flags)
+                p["Severity"] = severity
                 suspicious.append(p)
         return suspicious
 
@@ -165,56 +154,48 @@ class MemoryAnalyzer:
             dll_output = self.run_volatility("dlllist", memory_file, ["--pid", str(pid)])
             if not dll_output:
                 continue
+            dll_paths = []
             for line in dll_output.splitlines():
                 for bad_path in SUSPICIOUS_PATHS:
                     if bad_path in line.lower():
                         p["SuspiciousDLL"] = True
+                        dll_paths.append(line.strip())
                         break
+            if dll_paths:
+                p["DLL_Paths"] = dll_paths
         return processes
 
-    def scan_memory(self, memory_file, processes, output_dir, limit=10):
+    def scan_memory(self, memory_file, processes, output_dir):
         if not self.yara_rules:
             return []
 
-        print(f"[+] Scanning process memory with YARA rules (limit: {limit})...")
+        print("[+] Scanning process memory with YARA rules...")
         matches = []
-
-        for p in processes[:limit]:
+        for p in processes:
             pid = p.get("PID")
             if not pid:
                 continue
             print(f"  [*] Scanning PID {pid} ({p['ImageFileName']})...")
-
             try:
                 cmd = [
-                    "python",
-                    self.volatility_path,
+                    "python", self.volatility_path,
                     "-f", memory_file,
                     "windows.memmap",
-                    "--pid", str(pid),
-                    "--dump"
+                    "--pid", str(pid), "--dump"
                 ]
                 subprocess.run(cmd, check=True, capture_output=True, text=True)
-
                 dump_files = [f for f in os.listdir(".") if f.startswith(f"pid.{pid}") and f.endswith(".dmp")]
                 for dump_file in dump_files:
-                    src_path = os.path.abspath(dump_file)
-                    dest_path = os.path.join(output_dir, dump_file)
-                    shutil.move(src_path, dest_path)
-
-                    with open(dest_path, "rb") as f:
-                        file_matches = self.yara_rules.match(data=f.read())
-                        if file_matches:
-                            p["YARA_Matches"] = [str(m) for m in file_matches]
+                    full_path = os.path.join(output_dir, dump_file)
+                    shutil.move(dump_file, full_path)
+                    with open(full_path, "rb") as f:
+                        results = self.yara_rules.match(data=f.read())
+                        if results:
+                            p["YARA_Matches"] = [r.rule for r in results]
                             matches.append(p)
-                            print(f"    [!] Found {len(file_matches)} YARA matches")
-
-                    os.remove(dest_path)
-
+                    os.remove(full_path)
             except Exception as e:
-                print(f"    [-] Error scanning PID {pid}: {str(e)[:100]}")
-                continue
-
+                print(f"    [-] Error scanning PID {pid}: {str(e)}")
         return matches
 
     def generate_report(self, data, output_file, report_type="txt"):
@@ -223,43 +204,39 @@ class MemoryAnalyzer:
             with open(output_file, "w") as f:
                 f.write("MEMORY FORENSIC ANALYSIS REPORT\n")
                 f.write("="*60 + "\n\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Analyzed: {os.path.basename(data.get('memory_file', 'Unknown'))}\n\n")
+                f.write(f"Generated: {datetime.now()}\n")
+                f.write(f"Analyzed: {os.path.basename(data['memory_file'])}\n\n")
 
-                f.write("SUMMARY\n")
-                f.write("="*60 + "\n")
-                f.write(f"Total Processes: {len(data.get('processes', []))}\n")
-                f.write(f"Suspicious Processes: {len(data.get('suspicious', []))}\n")
-                f.write(f"Processes with YARA Matches: {len(data.get('yara_matches', []))}\n\n")
+                f.write("SUMMARY\n" + "="*60 + "\n")
+                f.write(f"Total Processes: {len(data['processes'])}\n")
+                f.write(f"Suspicious Processes: {len(data['suspicious'])}\n")
+                f.write(f"Processes with YARA Matches: {len(data['yara_matches'])}\n\n")
 
-                f.write("SUSPICIOUS PROCESSES\n")
-                f.write("="*60 + "\n")
-                if data.get("suspicious"):
-                    for p in data["suspicious"]:
-                        f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Flags: {p['Flags']}\n")
-                else:
-                    f.write("No suspicious processes detected\n")
+                f.write("SUSPICIOUS PROCESSES\n" + "="*60 + "\n")
+                for p in data["suspicious"]:
+                    f.write(f"PID: {p['PID']:>6} | Severity: {p.get('Severity','')} | {p['ImageFileName']:<25} | Flags: {p['Flags']}\n")
+                    if p.get("DLL_Paths"):
+                        for dll in p["DLL_Paths"]:
+                            f.write(f"    DLL: {dll}\n")
 
-                f.write("\nYARA RULE MATCHES\n")
-                f.write("="*60 + "\n")
-                if data.get("yara_matches"):
-                    for p in data["yara_matches"]:
-                        f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Matches: {', '.join(p['YARA_Matches'])}\n")
-                else:
-                    f.write("No YARA rule matches found\n")
-
-                f.write("\nPROCESS LIST\n")
-                f.write("="*60 + "\n")
-                for p in data.get("processes", []):
-                    hidden_str = " (Hidden)" if p.get("Hidden") == "Yes" else ""
-                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}{hidden_str}\n")
+                f.write("\nYARA RULE MATCHES\n" + "="*60 + "\n")
+                for p in data["yara_matches"]:
+                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<25} | Matches: {', '.join(p['YARA_Matches'])}\n")
 
         elif report_type == "csv":
-            with open(output_file, "w", newline="") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=["PID", "ImageFileName", "Parent", "Flags", "YARA_Matches"])
+            fieldnames = ["PID", "PPID", "ImageFileName", "Parent", "Hidden", "User", "Flags", "Severity", "YARA_Matches", "DLL_Paths"]
+            with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for p in data["suspicious"]:
-                    writer.writerow(p)
+                    writer.writerow({
+                        "PID": p.get("PID"), "PPID": p.get("PPID"),
+                        "ImageFileName": p.get("ImageFileName"), "Parent": p.get("Parent"),
+                        "Hidden": p.get("Hidden", ""), "User": p.get("User", "N/A"),
+                        "Flags": p.get("Flags", ""), "Severity": p.get("Severity", ""),
+                        "YARA_Matches": ", ".join(p.get("YARA_Matches", [])),
+                        "DLL_Paths": " | ".join(p.get("DLL_Paths", []))
+                    })
 
 
 def main():
@@ -267,41 +244,24 @@ def main():
     print("MEMORY FORENSIC ANALYZER - VOLATILITY 3 VERSION")
     print("="*60 + "\n")
 
-    parser = argparse.ArgumentParser(description="Analyze memory dumps for malicious activity")
-    parser.add_argument("-f", "--file", required=True, help="Path to the memory dump file")
-    parser.add_argument("-o", "--output", help="Custom report filename (optional)")
-    parser.add_argument("--no-yara", action="store_true", help="Skip YARA scanning")
-    parser.add_argument("--pid-limit", type=int, default=10, help="Limit number of PIDs to scan with YARA")
-    parser.add_argument("--report-type", choices=["txt", "csv"], default="txt", help="Specify report format")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--file", required=True, help="Memory dump file")
+    parser.add_argument("-o", "--output", help="Custom report filename")
+    parser.add_argument("--no-yara", action="store_true", help="Skip YARA scan")
+    parser.add_argument("--report-type", choices=["txt", "csv"], default="txt")
     args = parser.parse_args()
 
-    if not os.path.exists(args.file):
-        print(f"[-] Memory dump not found: {args.file}")
-        sys.exit(1)
-
     analyzer = MemoryAnalyzer()
-
     if not analyzer.validate_paths():
         sys.exit(1)
-
-    if not args.no_yara and not analyzer.load_yara_rules():
-        print("[!] Continuing without YARA scanning capability")
+    if not args.no_yara:
+        analyzer.load_yara_rules()
 
     report_path = args.output or get_next_report_filename()
-
     processes = analyzer.get_processes(args.file)
-    if not processes:
-        print("[-] Failed to extract process information")
-        sys.exit(1)
-
     processes = analyzer.scan_dlls(args.file, processes)
     suspicious = analyzer.detect_suspicious(processes)
-
-    yara_matches = []
-    if not args.no_yara:
-        yara_matches = analyzer.scan_memory(args.file, processes, os.path.dirname(report_path), limit=args.pid_limit)
-    else:
-        print("[!] Skipping YARA scan as per user request.")
+    yara_matches = analyzer.scan_memory(args.file, processes, os.path.dirname(report_path)) if not args.no_yara else []
 
     analyzer.generate_report({
         "memory_file": args.file,
