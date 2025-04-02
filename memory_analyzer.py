@@ -1,227 +1,267 @@
 #!/usr/bin/env python3
 """
-Memory Forensic Analysis Tool for Malware Detection
-Group 2 - Memory Forensics Project
-
-This tool analyzes memory dumps to detect malicious processes, anomalies,
-and malware signatures using YARA rules. It provides both technical analysis
-and visualizations of findings.
+Memory Forensic Analyzer - Volatility 3 Compatible
+Each analysis run creates a new folder (analysis_001, analysis_002, ...)
+Dumped process memory and report are stored in the same folder.
 """
 
 import os
+import sys
+import shutil
+import argparse
 import yara
-import pandas as pd
-import matplotlib.pyplot as plt
+import tempfile
 import subprocess
 from datetime import datetime
 
+# Configuration
+VOLATILITY_PATH = "volatility3/vol.py"
+YARA_RULES_FILE = "malware_rules.yar"
+
+def get_next_analysis_folder(base_dir="analysis"):
+    os.makedirs(base_dir, exist_ok=True)
+    existing = [d for d in os.listdir(base_dir)
+                if os.path.isdir(os.path.join(base_dir, d)) and d.startswith("analysis_")]
+    numbers = [int(d.split("_")[1]) for d in existing if d.split("_")[1].isdigit()]
+    next_num = max(numbers) + 1 if numbers else 1
+    folder_name = f"analysis_{next_num:03}"
+    full_path = os.path.join(base_dir, folder_name)
+    os.makedirs(full_path, exist_ok=True)
+    return full_path
+
 class MemoryAnalyzer:
-    def __init__(self, memory_dump_path):
-        self.memory_dump = memory_dump_path
-        self.processes = []
-        self.suspicious_items = []
+    def __init__(self, volatility_path=VOLATILITY_PATH):
+        self.volatility_path = volatility_path
         self.yara_rules = None
-        self.report_data = {
-            'analysis_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'filename': os.path.basename(memory_dump_path),
-            'findings': []
-        }
 
-    def load_yara_rules(self, rules_path):
+    def validate_paths(self):
+        required = [
+            (self.volatility_path, "Volatility"),
+            (YARA_RULES_FILE, "YARA rules")
+        ]
+        all_valid = True
+        for path, name in required:
+            if not os.path.exists(path):
+                print(f"[-] Error: {name} not found at {path}")
+                all_valid = False
+        return all_valid
+
+    def load_yara_rules(self):
         try:
-            self.yara_rules = yara.compile(rules_path)
-            self.report_data['yara_rules_loaded'] = True
+            self.yara_rules = yara.compile(filepath=YARA_RULES_FILE)
+            print(f"[+] Successfully loaded YARA rules from {YARA_RULES_FILE}")
             return True
+        except yara.SyntaxError as e:
+            print(f"[-] YARA syntax error: {e}")
         except Exception as e:
-            print(f"[!] Error loading YARA rules: {e}")
-            self.report_data['yara_rules_loaded'] = False
-            return False
+            print(f"[-] Error loading YARA rules: {e}")
+        return False
 
-    def extract_processes(self):
-        print("[*] Running Volatility3 to extract process list...")
+    def run_volatility(self, plugin, memory_file, extra_args=None):
+        cmd = [
+            "python",
+            self.volatility_path,
+            "-f", os.path.normpath(memory_file),
+            f"windows.{plugin}"
+        ]
+        if extra_args:
+            cmd += extra_args
+
         try:
-            output = subprocess.run(
-                ["vol", "-f", self.memory_dump, "windows.pslist"],
-                capture_output=True, text=True, check=True
+            result = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
-            lines = output.stdout.splitlines()
-            self.processes = []
-
-            for line in lines:
-                if line.strip().startswith("Offset") or line.strip() == "":
-                    continue
-                parts = line.strip().split()
-                if len(parts) >= 6:
-                    pid = int(parts[2])
-                    ppid = int(parts[3])
-                    name = parts[-1]
-                    self.processes.append({
-                        'pid': pid,
-                        'parent_pid': ppid,
-                        'name': name,
-                        'path': f"Unknown (PID: {pid})",
-                        'start_time': "Unknown",
-                        'user': "N/A",
-                        'dlls': []
-                    })
-
-            self.report_data['process_count'] = len(self.processes)
-            return self.processes
-
+            return result.stdout
         except subprocess.CalledProcessError as e:
-            print(f"[!] Error running Volatility3: {e}")
-            return []
-
-    def dump_process_memory(self, pid, output_dir="process_dumps"):
-        os.makedirs(output_dir, exist_ok=True)
-        print(f"[*] Dumping memory for PID {pid}...")
-
-        try:
-            subprocess.run([
-                "vol", "-f", self.memory_dump, "windows.memdump",
-                f"--pid={pid}", f"--dump-dir={output_dir}"
-            ], check=True)
-
-            for fname in os.listdir(output_dir):
-                if fname.startswith(f"pid.{pid}.") and fname.endswith(".dmp"):
-                    return os.path.join(output_dir, fname)
-        except Exception as e:
-            print(f"[!] Failed to dump memory for PID {pid}: {e}")
-        return None
-
-    def detect_suspicious_processes(self):
-        suspicious = []
-        for process in self.processes:
-            flags = []
-            temp_paths = ['temp', 'tmp', 'appdata', 'local\\temp']
-            if any(path in process['path'].lower() for path in temp_paths):
-                flags.append('Runs from temporary location')
-            if process['name'].lower() != os.path.basename(process['path']).lower():
-                flags.append('Name/path mismatch')
-            suspicious_names = ['mimikatz', 'cobaltstrike', 'metasploit', 'netwire', 'empire', 'powersploit']
-            if any(name in process['name'].lower() for name in suspicious_names):
-                flags.append('Known malicious process name')
-            if (process['parent_pid'] == 200 and process['pid'] == 444):
-                flags.append('Unusual parent process')
-            suspicious_dlls = ['unknown.dll', 'inject.dll', 'hook.dll']
-            if any(dll.lower() in [d.lower() for d in process['dlls']] for dll in suspicious_dlls):
-                flags.append('Suspicious DLL loaded')
-
-            if flags:
-                suspicious.append({
-                    'process': process,
-                    'flags': flags,
-                    'type': 'suspicious_process'
-                })
-        self.suspicious_items.extend(suspicious)
-        return suspicious
-
-    def scan_for_malware(self):
-        if not self.yara_rules:
-            print("[!] YARA rules not loaded - skipping scan.")
-            return []
-
-        results = []
-        for process in self.processes:
-            dump_path = self.dump_process_memory(process['pid'])
-            if not dump_path or not os.path.exists(dump_path):
-                continue
-
-            try:
-                matches = self.yara_rules.match(filepath=dump_path)
-                if matches:
-                    results.append({
-                        'process': process,
-                        'matches': [m.rule for m in matches],
-                        'type': 'malware_signature'
-                    })
-            except Exception as e:
-                print(f"[!] YARA error scanning PID {process['pid']}: {e}")
-
-        self.suspicious_items.extend(results)
-        return results
-
-    def generate_report(self):
-        if not self.suspicious_items:
-            self.report_data['conclusion'] = "No suspicious activity detected"
-        else:
-            self.report_data['conclusion'] = f"{len(self.suspicious_items)} suspicious items found"
-            self.report_data['findings'] = self.suspicious_items
-        return self.report_data
-
-    def visualize_process_tree(self):
-        try:
-            df = pd.DataFrame(self.processes)
-            plt.figure(figsize=(12, 8))
-            for _, process in df.iterrows():
-                plt.scatter(process['parent_pid'], process['pid'], label=process['name'], s=100)
-                plt.text(process['parent_pid'], process['pid'],
-                         f"{process['name']}\nPID: {process['pid']}",
-                         fontsize=8, ha='center', va='bottom')
-            if self.suspicious_items:
-                for item in self.suspicious_items:
-                    if 'process' in item:
-                        plt.scatter(item['process']['parent_pid'],
-                                    item['process']['pid'],
-                                    color='red', s=150, marker='x')
-            plt.title("Process Tree Visualization\n(Red X marks suspicious processes)")
-            plt.xlabel("Parent PID")
-            plt.ylabel("PID")
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            image_path = "process_tree.png"
-            plt.savefig(image_path)
-            plt.close()
-            return image_path
-        except Exception as e:
-            print(f"[!] Error generating visualization: {e}")
+            print(f"[-] Volatility command failed: {' '.join(cmd)}")
+            print(f"Error: {e.stderr}")
             return None
 
+    def get_processes(self, memory_file):
+        print("[+] Extracting process information...")
+        output = self.run_volatility("pslist", memory_file)
+        if not output:
+            return None
+
+        lines = output.strip().splitlines()
+        if len(lines) < 2:
+            print("[-] Unexpected output format from pslist.")
+            return None
+
+        # Skip to header
+        for idx, line in enumerate(lines):
+            if line.strip().startswith("PID"):
+                lines = lines[idx:]
+                break
+
+        headers = lines[0].split()
+        processes = []
+
+        for line in lines[1:]:
+            parts = line.split(None, len(headers) - 1)
+            if len(parts) < 3:
+                continue
+            proc = {
+                "PID": parts[0],
+                "PPID": parts[1],
+                "ImageFileName": parts[2],
+                "Parent": "Unknown"
+            }
+            processes.append(proc)
+
+        pid_map = {p["PID"]: p["ImageFileName"] for p in processes}
+        for p in processes:
+            p["Parent"] = pid_map.get(p["PPID"], "Unknown")
+
+        return processes
+
+    def detect_suspicious(self, processes):
+        suspicious = []
+        common_parents = ["explorer.exe", "svchost.exe", "services.exe", "wininit.exe"]
+        for p in processes:
+            flags = []
+            name = p.get("ImageFileName", "").lower()
+
+            if any(bad in name for bad in ["mimi", "cobalt", "inject", "malware"]):
+                flags.append("Known bad process name")
+            if p["Parent"].lower() not in common_parents:
+                flags.append(f"Unusual parent: {p['Parent']}")
+            if flags:
+                p["Flags"] = ", ".join(flags)
+                suspicious.append(p)
+        return suspicious
+
+    def scan_memory(self, memory_file, processes, output_dir):
+        if not self.yara_rules:
+            return []
+
+        print("[+] Scanning process memory with YARA rules...")
+        matches = []
+
+        for p in processes[:10]:
+            pid = p.get("PID")
+            if not pid:
+                continue
+            print(f"  [*] Scanning PID {pid} ({p['ImageFileName']})...")
+
+            try:
+                # Run Volatility to dump memory
+                cmd = [
+                    "python",
+                    self.volatility_path,
+                    "-f", memory_file,
+                    "windows.memmap",
+                    "--pid", str(pid),
+                    "--dump"
+                ]
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+                # Look for dump files in current working directory
+                dump_files = [f for f in os.listdir(".") if f.startswith(f"pid.{pid}") and f.endswith(".dmp")]
+                for dump_file in dump_files:
+                    src_path = os.path.abspath(dump_file)
+                    dest_path = os.path.join(output_dir, dump_file)
+
+                    # Move to analysis folder
+                    shutil.move(src_path, dest_path)
+
+                    # YARA scan
+                    with open(dest_path, "rb") as f:
+                        file_matches = self.yara_rules.match(data=f.read())
+                        if file_matches:
+                            p["YARA_Matches"] = [str(m) for m in file_matches]
+                            matches.append(p)
+                            print(f"    [!] Found {len(file_matches)} YARA matches")
+
+                    # Delete after scanning
+                    os.remove(dest_path)
+
+            except Exception as e:
+                print(f"    [-] Error scanning PID {pid}: {str(e)[:100]}")
+                continue
+
+        return matches
+
+    def generate_report(self, data, output_file):
+        print(f"[+] Generating report: {output_file}")
+        with open(output_file, "w") as f:
+            f.write("MEMORY FORENSIC ANALYSIS REPORT\n")
+            f.write("="*60 + "\n\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Analyzed: {os.path.basename(data.get('memory_file', 'Unknown'))}\n\n")
+
+            f.write("SUMMARY\n")
+            f.write("="*60 + "\n")
+            f.write(f"Total Processes: {len(data.get('processes', []))}\n")
+            f.write(f"Suspicious Processes: {len(data.get('suspicious', []))}\n")
+            f.write(f"Processes with YARA Matches: {len(data.get('yara_matches', []))}\n\n")
+
+            f.write("SUSPICIOUS PROCESSES\n")
+            f.write("="*60 + "\n")
+            if data.get("suspicious"):
+                for p in data["suspicious"]:
+                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Flags: {p['Flags']}\n")
+            else:
+                f.write("No suspicious processes detected\n")
+
+            f.write("\nYARA RULE MATCHES\n")
+            f.write("="*60 + "\n")
+            if data.get("yara_matches"):
+                for p in data["yara_matches"]:
+                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Matches: {', '.join(p['YARA_Matches'])}\n")
+            else:
+                f.write("No YARA rule matches found\n")
+
+            f.write("\nPROCESS LIST (First 20)\n")
+            f.write("="*60 + "\n")
+            for p in data.get("processes", [])[:20]:
+                f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}\n")
+
+def main():
+    print("\n" + "="*60)
+    print("MEMORY FORENSIC ANALYZER - VOLATILITY 3 VERSION")
+    print("="*60 + "\n")
+
+    parser = argparse.ArgumentParser(description="Analyze memory dumps for malicious activity")
+    parser.add_argument("-f", "--file", required=True, help="Path to the memory dump file")
+    parser.add_argument("-o", "--output", default="report.txt", help="Report file name (inside analysis folder)")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.file):
+        print(f"[-] Memory dump not found: {args.file}")
+        sys.exit(1)
+
+    analyzer = MemoryAnalyzer()
+
+    if not analyzer.validate_paths():
+        sys.exit(1)
+
+    if not analyzer.load_yara_rules():
+        print("[!] Continuing without YARA scanning capability")
+
+    analysis_dir = get_next_analysis_folder()
+    report_path = os.path.join(analysis_dir, args.output)
+
+    processes = analyzer.get_processes(args.file)
+    if not processes:
+        print("[-] Failed to extract process information")
+        sys.exit(1)
+
+    suspicious = analyzer.detect_suspicious(processes)
+    yara_matches = analyzer.scan_memory(args.file, processes, analysis_dir)
+
+    analyzer.generate_report({
+        "memory_file": args.file,
+        "processes": processes,
+        "suspicious": suspicious,
+        "yara_matches": yara_matches
+    }, report_path)
+
+    print(f"\n[+] Analysis complete! Report and dumps saved to: {analysis_dir}")
+
 if __name__ == "__main__":
-    print("""
-    Memory Forensic Tool - Group 2
-    -----------------------------
-    """)
-
-    analyzer = MemoryAnalyzer("memory.raw")
-    if not analyzer.load_yara_rules("malware_rules.yar"):
-        print("[!] Continuing without YARA rules")
-
-    print("[*] Extracting processes...")
-    analyzer.extract_processes()
-
-    print("[*] Detecting suspicious processes...")
-    analyzer.detect_suspicious_processes()
-
-    print("[*] Scanning for malware signatures...")
-    analyzer.scan_for_malware()
-
-    print("[*] Generating report...")
-    report = analyzer.generate_report()
-
-    print("[*] Creating visualization...")
-    image_path = analyzer.visualize_process_tree()
-
-    print("\n=== Analysis Report ===")
-    print(f"Analyzed file: {report['filename']}")
-    print(f"Analysis time: {report['analysis_time']}")
-    print(f"Processes found: {report.get('process_count', 'N/A')}")
-    print(f"Conclusion: {report['conclusion']}")
-
-    if report['findings']:
-        print("\n=== Findings ===")
-        for i, finding in enumerate(report['findings'], 1):
-            print(f"\nFinding #{i}:")
-            print(f"Type: {finding['type'].upper()}")
-            print(f"Process: {finding['process']['name']} (PID: {finding['process']['pid']})")
-            if 'flags' in finding:
-                print("Detection Flags:")
-                for flag in finding['flags']:
-                    print(f" - {flag}")
-            if 'matches' in finding:
-                print("YARA Rule Matches:")
-                for match in finding['matches']:
-                    print(f" - {match}")
-    if image_path:
-        print(f"\nProcess tree visualization saved to {image_path}")
-    print("\nAnalysis complete.")
+    main()
