@@ -1,2 +1,0 @@
-pip install yara-python pandas matplotlib pefile volatility3
-pip install -r requirements.txt
