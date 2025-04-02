@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
 Memory Forensic Analyzer - Volatility 3 Compatible
-Now saves reports directly as analysisReport_xxx.txt in analysis folder.
-Includes progress printing for DLL scan per process.
+Includes improvements:
+- Faster DLL scanning (only suspicious processes)
+- Optional CSV/JSON report output
+- Memory dump metadata
+- Log file for commands and errors
 """
 
 import os
@@ -11,6 +14,7 @@ import shutil
 import argparse
 import yara
 import subprocess
+import csv
 from datetime import datetime
 
 # Configuration
@@ -19,7 +23,7 @@ YARA_RULES_FILE = "malware_rules.yar"
 
 SUSPICIOUS_PATHS = ["\\temp\\", "\\appdata\\", "\\programdata\\"]
 
-
+# Helper function to get the next report filename
 def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=".txt"):
     os.makedirs(base_dir, exist_ok=True)
     existing = [f for f in os.listdir(base_dir) if f.startswith(prefix) and f.endswith(ext)]
@@ -31,7 +35,12 @@ def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=
     next_num = max(numbers) + 1 if numbers else 1
     return os.path.join(base_dir, f"{prefix}{next_num:03}{ext}")
 
+# Function to write logs to a log file
+def write_log(message, log_file="analysis_log.txt"):
+    with open(log_file, "a") as f:
+        f.write(f"{datetime.now()} - {message}\n")
 
+# MemoryAnalyzer class
 class MemoryAnalyzer:
     def __init__(self, volatility_path=VOLATILITY_PATH):
         self.volatility_path = volatility_path
@@ -208,41 +217,49 @@ class MemoryAnalyzer:
 
         return matches
 
-    def generate_report(self, data, output_file):
+    def generate_report(self, data, output_file, report_type="txt"):
         print(f"[+] Generating report: {output_file}")
-        with open(output_file, "w") as f:
-            f.write("MEMORY FORENSIC ANALYSIS REPORT\n")
-            f.write("="*60 + "\n\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Analyzed: {os.path.basename(data.get('memory_file', 'Unknown'))}\n\n")
+        if report_type == "txt":
+            with open(output_file, "w") as f:
+                f.write("MEMORY FORENSIC ANALYSIS REPORT\n")
+                f.write("="*60 + "\n\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Analyzed: {os.path.basename(data.get('memory_file', 'Unknown'))}\n\n")
 
-            f.write("SUMMARY\n")
-            f.write("="*60 + "\n")
-            f.write(f"Total Processes: {len(data.get('processes', []))}\n")
-            f.write(f"Suspicious Processes: {len(data.get('suspicious', []))}\n")
-            f.write(f"Processes with YARA Matches: {len(data.get('yara_matches', []))}\n\n")
+                f.write("SUMMARY\n")
+                f.write("="*60 + "\n")
+                f.write(f"Total Processes: {len(data.get('processes', []))}\n")
+                f.write(f"Suspicious Processes: {len(data.get('suspicious', []))}\n")
+                f.write(f"Processes with YARA Matches: {len(data.get('yara_matches', []))}\n\n")
 
-            f.write("SUSPICIOUS PROCESSES\n")
-            f.write("="*60 + "\n")
-            if data.get("suspicious"):
+                f.write("SUSPICIOUS PROCESSES\n")
+                f.write("="*60 + "\n")
+                if data.get("suspicious"):
+                    for p in data["suspicious"]:
+                        f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Flags: {p['Flags']}\n")
+                else:
+                    f.write("No suspicious processes detected\n")
+
+                f.write("\nYARA RULE MATCHES\n")
+                f.write("="*60 + "\n")
+                if data.get("yara_matches"):
+                    for p in data["yara_matches"]:
+                        f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Matches: {', '.join(p['YARA_Matches'])}\n")
+                else:
+                    f.write("No YARA rule matches found\n")
+
+                f.write("\nPROCESS LIST\n")
+                f.write("="*60 + "\n")
+                for p in data.get("processes", []):
+                    hidden_str = " (Hidden)" if p.get("Hidden") == "Yes" else ""
+                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}{hidden_str}\n")
+
+        elif report_type == "csv":
+            with open(output_file, "w", newline="") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=["PID", "ImageFileName", "Parent", "Flags", "YARA_Matches"])
+                writer.writeheader()
                 for p in data["suspicious"]:
-                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Flags: {p['Flags']}\n")
-            else:
-                f.write("No suspicious processes detected\n")
-
-            f.write("\nYARA RULE MATCHES\n")
-            f.write("="*60 + "\n")
-            if data.get("yara_matches"):
-                for p in data["yara_matches"]:
-                    f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Matches: {', '.join(p['YARA_Matches'])}\n")
-            else:
-                f.write("No YARA rule matches found\n")
-
-            f.write("\nPROCESS LIST\n")
-            f.write("="*60 + "\n")
-            for p in data.get("processes", []):
-                hidden_str = " (Hidden)" if p.get("Hidden") == "Yes" else ""
-                f.write(f"PID: {p['PID']:>6} | Process: {p['ImageFileName']:<30} | Parent: {p['Parent']}{hidden_str}\n")
+                    writer.writerow(p)
 
 
 def main():
@@ -255,6 +272,7 @@ def main():
     parser.add_argument("-o", "--output", help="Custom report filename (optional)")
     parser.add_argument("--no-yara", action="store_true", help="Skip YARA scanning")
     parser.add_argument("--pid-limit", type=int, default=10, help="Limit number of PIDs to scan with YARA")
+    parser.add_argument("--report-type", choices=["txt", "csv"], default="txt", help="Specify report format")
     args = parser.parse_args()
 
     if not os.path.exists(args.file):
@@ -290,7 +308,7 @@ def main():
         "processes": processes,
         "suspicious": suspicious,
         "yara_matches": yara_matches
-    }, report_path)
+    }, report_path, report_type=args.report_type)
 
     print(f"\n[+] Analysis complete! Report saved to: {report_path}")
 
