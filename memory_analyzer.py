@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 Memory Forensic Analyzer - Volatility 3 Compatible
-Includes improvements:
-- Full YARA scan (removed PID limit)
-- Structured severity ranking
-- Logs all suspicious DLL paths
-- CSV export with all relevant fields
-- Optional user context (placeholder for now)
+Includes:
+- Process extraction
+- YARA rule scanning
+- Suspicious DLL detection
+- Report export in TXT and CSV
 """
 
 import os
@@ -19,9 +18,8 @@ import csv
 from datetime import datetime
 
 # Configuration
-VOLATILITY_PATH = "volatility3/vol.exe"
+VOLATILITY_PATH = "volatility3/vol.py"
 YARA_RULES_FILE = "malware_rules.yar"
-SUSPICIOUS_PATHS = ["\\temp\\", "\\appdata\\", "\\programdata\\"]
 
 
 def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=".txt"):
@@ -121,6 +119,37 @@ class MemoryAnalyzer:
 
         return all_procs
 
+    def scan_dlls(self, memory_file, processes):
+        print("[+] Checking for DLLs...")
+        for p in processes:
+            pid = p["PID"]
+            print(f"  [*] Checking PID {pid} ({p['ImageFileName']})...")
+            dll_output = self.run_volatility("dlllist", memory_file, ["--pid", str(pid)])
+            if not dll_output:
+                continue
+
+            dll_paths = []
+            suspicious_found = False
+
+            for line in dll_output.splitlines():
+                line = line.strip()
+                if not line or "\\" not in line:
+                    continue
+
+                dll_paths.append(line)
+
+                # Check if the path is suspicious
+                lowered = line.lower()
+                if any(suspicious in lowered for suspicious in ["\\temp\\", "\\appdata\\", "\\programdata\\"]):
+                    suspicious_found = True
+
+            if dll_paths:
+                p["DLL_Paths"] = dll_paths
+            if suspicious_found:
+                p["SuspiciousDLL"] = True
+
+        return processes
+
     def detect_suspicious(self, processes):
         suspicious = []
         common_parents = ["explorer.exe", "svchost.exe", "services.exe", "wininit.exe"]
@@ -145,25 +174,6 @@ class MemoryAnalyzer:
                 p["Severity"] = severity
                 suspicious.append(p)
         return suspicious
-
-    def scan_dlls(self, memory_file, processes):
-        print("[+] Checking for suspicious DLLs...")
-        for p in processes:
-            pid = p["PID"]
-            print(f"  [*] Checking DLLs for PID {pid} ({p['ImageFileName']})...")
-            dll_output = self.run_volatility("dlllist", memory_file, ["--pid", str(pid)])
-            if not dll_output:
-                continue
-            dll_paths = []
-            for line in dll_output.splitlines():
-                for bad_path in SUSPICIOUS_PATHS:
-                    if bad_path in line.lower():
-                        p["SuspiciousDLL"] = True
-                        dll_paths.append(line.strip())
-                        break
-            if dll_paths:
-                p["DLL_Paths"] = dll_paths
-        return processes
 
     def scan_memory(self, memory_file, processes, output_dir):
         if not self.yara_rules:
@@ -205,6 +215,7 @@ class MemoryAnalyzer:
                 f.write("MEMORY FORENSIC ANALYSIS REPORT\n")
                 f.write("="*60 + "\n\n")
                 f.write(f"Generated: {datetime.now()}\n")
+                f.write(f"Total Run Time: {data.get('run_time', 'N/A')}\n\n")
                 f.write(f"Analyzed: {os.path.basename(data['memory_file'])}\n\n")
 
                 f.write("SUMMARY\n" + "="*60 + "\n")
@@ -229,13 +240,24 @@ class MemoryAnalyzer:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for p in data["suspicious"]:
+                    dll_list = p.get("DLL_Paths", [])
+                    dll_display = ""
+                    if dll_list:
+                        shown = dll_list[:3]
+                        dll_display = " | ".join(shown)
+                        if len(dll_list) > 3:
+                            dll_display += f" (+{len(dll_list) - 3} more)"
                     writer.writerow({
-                        "PID": p.get("PID"), "PPID": p.get("PPID"),
-                        "ImageFileName": p.get("ImageFileName"), "Parent": p.get("Parent"),
-                        "Hidden": p.get("Hidden", ""), "User": p.get("User", "N/A"),
-                        "Flags": p.get("Flags", ""), "Severity": p.get("Severity", ""),
-                        "YARA_Matches": ", ".join(p.get("YARA_Matches", [])),
-                        "DLL_Paths": " | ".join(p.get("DLL_Paths", []))
+                        "PID": p.get("PID"),
+                        "PPID": p.get("PPID"),
+                        "ImageFileName": p.get("ImageFileName"),
+                        "Parent": p.get("Parent"),
+                        "Hidden": p.get("Hidden", ""),
+                        "User": p.get("User", "N/A"),
+                        "Flags": p.get("Flags", ""),
+                        "Severity": p.get("Severity", ""),
+                        "YARA_Matches": ", ".join(p.get("YARA_Matches", [])) if p.get("YARA_Matches") else "",
+                        "DLL_Paths": dll_display
                     })
 
 
@@ -243,6 +265,8 @@ def main():
     print("\n" + "="*60)
     print("MEMORY FORENSIC ANALYZER - VOLATILITY 3 VERSION")
     print("="*60 + "\n")
+
+    start_time = datetime.now()
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--file", required=True, help="Memory dump file")
@@ -263,14 +287,19 @@ def main():
     suspicious = analyzer.detect_suspicious(processes)
     yara_matches = analyzer.scan_memory(args.file, processes, os.path.dirname(report_path)) if not args.no_yara else []
 
+    end_time = datetime.now()
+    elapsed = end_time - start_time
+
     analyzer.generate_report({
         "memory_file": args.file,
         "processes": processes,
         "suspicious": suspicious,
-        "yara_matches": yara_matches
+        "yara_matches": yara_matches,
+        "run_time": str(elapsed)
     }, report_path, report_type=args.report_type)
 
     print(f"\n[+] Analysis complete! Report saved to: {report_path}")
+    print(f"[+] Total Running Time: {elapsed}")
 
 
 if __name__ == "__main__":
