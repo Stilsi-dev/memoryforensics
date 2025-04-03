@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
 Memory Forensic Analyzer - Volatility 3 Compatible
-Includes:
-- Process extraction
-- YARA rule scanning
-- Suspicious DLL detection
-- Report export in TXT and CSV
+
+This tool analyzes memory dump files using Volatility 3 and YARA rules.
+It extracts and examines running processes, detects hidden and suspicious ones,
+scans for malware signatures, and exports detailed reports in TXT or CSV format.
 """
 
 import os
@@ -17,29 +16,36 @@ import subprocess
 import csv
 from datetime import datetime
 
-# Configuration
+# Set paths for Volatility and YARA rules
 VOLATILITY_PATH = "volatility3/vol.py"
 YARA_RULES_FILE = "malware_rules.yar"
 
-
 def get_next_report_filename(base_dir="analysis", prefix="analysisReport_", ext=".txt"):
+    """
+    Automatically generate the next available report filename.
+    Ensures unique report files by incrementing the number suffix.
+    """
     os.makedirs(base_dir, exist_ok=True)
     existing = [f for f in os.listdir(base_dir) if f.startswith(prefix) and f.endswith(ext)]
-    numbers = [
-        int(f[len(prefix):-len(ext)])
-        for f in existing
-        if f[len(prefix):-len(ext)].isdigit()
-    ]
+    numbers = [int(f[len(prefix):-len(ext)]) for f in existing if f[len(prefix):-len(ext)].isdigit()]
     next_num = max(numbers) + 1 if numbers else 1
     return os.path.join(base_dir, f"{prefix}{next_num:03}{ext}")
 
-
 class MemoryAnalyzer:
+    """
+    Handles memory analysis logic using Volatility plugins and YARA scanning.
+    Performs process extraction, suspicious behavior detection, and report generation.
+    """
+
     def __init__(self, volatility_path=VOLATILITY_PATH):
         self.volatility_path = volatility_path
         self.yara_rules = None
 
     def validate_paths(self):
+        """
+        Check that required paths exist (Volatility script and YARA rule file).
+        Returns True if both are present, otherwise False.
+        """
         required = [
             (self.volatility_path, "Volatility"),
             (YARA_RULES_FILE, "YARA rules")
@@ -52,6 +58,10 @@ class MemoryAnalyzer:
         return all_valid
 
     def load_yara_rules(self):
+        """
+        Compile the YARA rules from file for later use.
+        Returns True if successful, otherwise False.
+        """
         try:
             self.yara_rules = yara.compile(filepath=YARA_RULES_FILE)
             print(f"[+] Successfully loaded YARA rules from {YARA_RULES_FILE}")
@@ -63,25 +73,26 @@ class MemoryAnalyzer:
         return False
 
     def run_volatility(self, plugin, memory_file, extra_args=None):
-        cmd = [
-            "python", self.volatility_path,
-            "-f", os.path.normpath(memory_file),
-            f"windows.{plugin}"
-        ]
+        """
+        Run a specified Volatility 3 plugin on the memory file.
+        Returns the plugin's output or None if an error occurred.
+        """
+        cmd = ["python", self.volatility_path, "-f", os.path.normpath(memory_file), f"windows.{plugin}"]
         if extra_args:
             cmd += extra_args
 
         try:
-            result = subprocess.run(
-                cmd, check=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             return result.stdout
         except subprocess.CalledProcessError as e:
             print(f"[-] Volatility error: {e.stderr}")
             return None
 
     def get_processes(self, memory_file):
+        """
+        Extract process lists using pslist and psscan plugins.
+        Combines them to identify hidden or terminated processes.
+        """
         print("[+] Extracting visible processes (pslist)...")
         pslist_output = self.run_volatility("pslist", memory_file)
         print("[+] Extracting all processes (psscan)...")
@@ -100,9 +111,11 @@ class MemoryAnalyzer:
                 if len(parts) < 3:
                     continue
                 procs.append({
-                    "PID": parts[0], "PPID": parts[1],
+                    "PID": parts[0],
+                    "PPID": parts[1],
                     "ImageFileName": parts[2],
-                    "Parent": "Unknown", "User": "N/A"
+                    "Parent": "Unknown",
+                    "User": "N/A"
                 })
             return procs
 
@@ -112,6 +125,7 @@ class MemoryAnalyzer:
         pslist_pids = {p["PID"] for p in pslist}
         pid_map = {p["PID"]: p["ImageFileName"] for p in psscan}
         all_procs = []
+
         for p in psscan:
             p["Hidden"] = "Yes" if p["PID"] not in pslist_pids else "No"
             p["Parent"] = pid_map.get(p["PPID"], "Unknown")
@@ -120,6 +134,10 @@ class MemoryAnalyzer:
         return all_procs
 
     def scan_dlls(self, memory_file, processes):
+        """
+        Check each process for DLLs loaded from suspicious directories.
+        Adds DLL paths and suspicious flags to each process.
+        """
         print("[+] Checking for DLLs...")
         for p in processes:
             pid = p["PID"]
@@ -135,10 +153,7 @@ class MemoryAnalyzer:
                 line = line.strip()
                 if not line or "\\" not in line:
                     continue
-
                 dll_paths.append(line)
-
-                # Check if the path is suspicious
                 lowered = line.lower()
                 if any(suspicious in lowered for suspicious in ["\\temp\\", "\\appdata\\", "\\programdata\\"]):
                     suspicious_found = True
@@ -151,6 +166,10 @@ class MemoryAnalyzer:
         return processes
 
     def detect_suspicious(self, processes):
+        """
+        Apply basic heuristics to identify suspicious processes.
+        Flags processes based on parent anomalies, hidden status, names, or DLLs.
+        """
         suspicious = []
         common_parents = ["explorer.exe", "svchost.exe", "services.exe", "wininit.exe"]
         for p in processes:
@@ -176,6 +195,10 @@ class MemoryAnalyzer:
         return suspicious
 
     def scan_memory(self, memory_file, processes, output_dir):
+        """
+        Dump and scan memory regions of each process using YARA rules.
+        Flags any process with matches for known malware indicators.
+        """
         if not self.yara_rules:
             return []
 
@@ -191,7 +214,8 @@ class MemoryAnalyzer:
                     "python", self.volatility_path,
                     "-f", memory_file,
                     "windows.memmap",
-                    "--pid", str(pid), "--dump"
+                    "--pid", str(pid),
+                    "--dump"
                 ]
                 subprocess.run(cmd, check=True, capture_output=True, text=True)
                 dump_files = [f for f in os.listdir(".") if f.startswith(f"pid.{pid}") and f.endswith(".dmp")]
@@ -209,6 +233,10 @@ class MemoryAnalyzer:
         return matches
 
     def generate_report(self, data, output_file, report_type="txt"):
+        """
+        Create a TXT or CSV report summarizing the analysis.
+        Includes process summary, YARA hits, and suspicious findings.
+        """
         print(f"[+] Generating report: {output_file}")
         if report_type == "txt":
             with open(output_file, "w") as f:
@@ -225,7 +253,7 @@ class MemoryAnalyzer:
 
                 f.write("SUSPICIOUS PROCESSES\n" + "="*60 + "\n")
                 for p in data["suspicious"]:
-                    f.write(f"PID: {p['PID']:>6} | Severity: {p.get('Severity','')} | {p['ImageFileName']:<25} | Flags: {p['Flags']}\n")
+                    f.write(f"PID: {p['PID']:>6} | Severity: {p.get('Severity', '')} | {p['ImageFileName']:<25} | Flags: {p['Flags']}\n")
                     if p.get("DLL_Paths"):
                         for dll in p["DLL_Paths"]:
                             f.write(f"    DLL: {dll}\n")
@@ -241,12 +269,9 @@ class MemoryAnalyzer:
                 writer.writeheader()
                 for p in data["suspicious"]:
                     dll_list = p.get("DLL_Paths", [])
-                    dll_display = ""
-                    if dll_list:
-                        shown = dll_list[:3]
-                        dll_display = " | ".join(shown)
-                        if len(dll_list) > 3:
-                            dll_display += f" (+{len(dll_list) - 3} more)"
+                    dll_display = " | ".join(dll_list[:3])
+                    if len(dll_list) > 3:
+                        dll_display += f" (+{len(dll_list) - 3} more)"
                     writer.writerow({
                         "PID": p.get("PID"),
                         "PPID": p.get("PPID"),
@@ -260,8 +285,11 @@ class MemoryAnalyzer:
                         "DLL_Paths": dll_display
                     })
 
-
 def main():
+    """
+    Main entry point for command-line usage.
+    Parses arguments, runs analysis, and generates reports.
+    """
     print("\n" + "="*60)
     print("MEMORY FORENSIC ANALYZER - VOLATILITY 3 VERSION")
     print("="*60 + "\n")
@@ -300,7 +328,6 @@ def main():
 
     print(f"\n[+] Analysis complete! Report saved to: {report_path}")
     print(f"[+] Total Running Time: {elapsed}")
-
 
 if __name__ == "__main__":
     main()
