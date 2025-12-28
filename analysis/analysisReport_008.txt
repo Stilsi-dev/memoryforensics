@@ -1,0 +1,13 @@
+PID,PPID,ImageFileName,Parent,Hidden,User,Flags,Severity,YARA_Matches,DLL_Paths
+2616,2592,reader_sl.exe,AdobeARM.exe,No,N/A,Unusual parent: AdobeARM.exe,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+4,0,System,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+2720,2444,Oobe.exe,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+2368,552,userinit.exe,winlogon.exe,No,N/A,Unusual parent: winlogon.exe,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+2496,2368,explorer.exe,userinit.exe,No,N/A,Unusual parent: userinit.exe,Low,"Process_Injection, Credential_Dumping_Tools, Malicious_Office_Macros, Malware_Strings_Generic",
+2480,832,TPAutoConnect.e,TPAutoConnSvc.e,No,N/A,Unusual parent: TPAutoConnSvc.e,Low,"Process_Injection, Malicious_Office_Macros, Malware_Strings_Generic",
+2616,2592,reader_sl.exe,AdobeARM.exe,No,N/A,Unusual parent: AdobeARM.exe,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+516,508,csrss.exe,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+524,460,wininit.exe,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+552,508,winlogon.exe,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+404,4,smss.exe,System,No,N/A,Unusual parent: System,Low,"Malicious_Office_Macros, Malware_Strings_Generic",
+472,460,csrss.exe,Unknown,No,N/A,Unusual parent: Unknown,Low,"Malicious_Office_Macros, Malware_Strings_Generic",

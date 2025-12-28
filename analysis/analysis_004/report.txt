@@ -1,0 +1,71 @@
+MEMORY FORENSIC ANALYSIS REPORT
+============================================================
+
+Generated: 2025-04-02 18:35:43
+Analyzed: memdump.mem
+
+SUMMARY
+============================================================
+Total Processes: 48
+Suspicious Processes: 11
+Processes with YARA Matches: 20
+
+SUSPICIOUS PROCESSES
+============================================================
+PID:      4 | Process: System                         | Flags: Unusual parent: Unknown
+PID:    404 | Process: smss.exe                       | Flags: Unusual parent: System
+PID:    472 | Process: csrss.exe                      | Flags: Unusual parent: Unknown
+PID:    516 | Process: csrss.exe                      | Flags: Unusual parent: Unknown
+PID:    524 | Process: wininit.exe                    | Flags: Unusual parent: Unknown
+PID:    552 | Process: winlogon.exe                   | Flags: Unusual parent: Unknown
+PID:   2368 | Process: userinit.exe                   | Flags: Unusual parent: winlogon.exe
+PID:   2480 | Process: TPAutoConnect.e                | Flags: Unusual parent: TPAutoConnSvc.e
+PID:   2496 | Process: explorer.exe                   | Flags: Unusual parent: userinit.exe
+PID:   2616 | Process: reader_sl.exe                  | Flags: Unusual parent: AdobeARM.exe
+PID:   2720 | Process: Oobe.exe                       | Flags: Unusual parent: Unknown
+
+YARA RULE MATCHES
+============================================================
+PID:      4 | Process: System                         | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:      4 | Process: System                         | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:      4 | Process: System                         | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:      4 | Process: System                         | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    404 | Process: smss.exe                       | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    472 | Process: csrss.exe                      | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    516 | Process: csrss.exe                      | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    516 | Process: csrss.exe                      | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    524 | Process: wininit.exe                    | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    524 | Process: wininit.exe                    | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    552 | Process: winlogon.exe                   | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    552 | Process: winlogon.exe                   | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    604 | Process: services.exe                   | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    604 | Process: services.exe                   | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    616 | Process: lsass.exe                      | Matches: Process_Injection, Malicious_Office_Macros, Malware_Strings_Generic
+PID:    616 | Process: lsass.exe                      | Matches: Process_Injection, Malicious_Office_Macros, Malware_Strings_Generic
+PID:    624 | Process: lsm.exe                        | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    624 | Process: lsm.exe                        | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    788 | Process: svchost.exe                    | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+PID:    788 | Process: svchost.exe                    | Matches: Malicious_Office_Macros, Malware_Strings_Generic
+
+PROCESS LIST (First 20)
+============================================================
+PID:      4 | Process: System                         | Parent: Unknown
+PID:    404 | Process: smss.exe                       | Parent: System
+PID:    472 | Process: csrss.exe                      | Parent: Unknown
+PID:    516 | Process: csrss.exe                      | Parent: Unknown
+PID:    524 | Process: wininit.exe                    | Parent: Unknown
+PID:    552 | Process: winlogon.exe                   | Parent: Unknown
+PID:    604 | Process: services.exe                   | Parent: wininit.exe
+PID:    616 | Process: lsass.exe                      | Parent: wininit.exe
+PID:    624 | Process: lsm.exe                        | Parent: wininit.exe
+PID:    788 | Process: svchost.exe                    | Parent: services.exe
+PID:    848 | Process: svchost.exe                    | Parent: services.exe
+PID:    884 | Process: svchost.exe                    | Parent: services.exe
+PID:    976 | Process: svchost.exe                    | Parent: services.exe
+PID:   1000 | Process: svchost.exe                    | Parent: services.exe
+PID:   1056 | Process: SLsvc.exe                      | Parent: services.exe
+PID:   1088 | Process: svchost.exe                    | Parent: services.exe
+PID:   1160 | Process: svchost.exe                    | Parent: services.exe
+PID:   1188 | Process: svchost.exe                    | Parent: services.exe
+PID:   1308 | Process: svchost.exe                    | Parent: services.exe
+PID:   1424 | Process: spoolsv.exe                    | Parent: services.exe
