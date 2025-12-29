@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 VOLATILITY_PATH = os.path.join("volatility3", "vol.py")
-YARA_RULES_FILE = "malware_rules.yar"
+YARA_RULES_FILE = os.path.join("rules", "malware_rules.yar")
 
 # Legitimate Windows system processes - exclude from suspicious DLL path checks
 WINDOWS_SYSTEM_PROCESSES = {
