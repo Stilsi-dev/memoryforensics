@@ -181,7 +181,7 @@ python memory_analyzer_gui.py
 
 🔲 **Ready to Demo** (Need memory dump)
 - [ ] Run analysis on memdump.mem
-- [ ] Generate new report (analysisReport_026.txt)
+- [ ] Generate new report (analysisReport_000.txt)
 - [ ] Compare with old report (analysisReport_025.txt)
 - [ ] Prepare presentation slides
 
@@ -196,12 +196,12 @@ python memory_analyzer_gui.py
 
 2. **Run Full Analysis**
    ```bash
-   python memory_analyzer.py -f memdump.mem -o analysis/analysisReport_026.txt
+   python memory_analyzer.py -f memdump.mem -o analysis/v2/analysisReport_000.txt
    ```
 
 3. **Compare Results**
    - Old report: `analysis/analysisReport_025.txt` (53/53 YARA matches)
-   - New report: `analysis/analysisReport_026.txt` (expected: ~5-8 matches)
+   - New report: `analysis/v2/analysisReport_000.txt` (expected: ~5-8 matches)
 
 4. **Prepare Demo**
    - Show old vs new report comparison

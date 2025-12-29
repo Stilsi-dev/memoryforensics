@@ -129,7 +129,7 @@ userinit.exe, oobe.exe
 - ✅ [This Document](FINAL_SUMMARY.md) - Executive summary
 
 ### Test Results
-- ✅ [analysisReport_026.txt](analysis/analysisReport_026.txt) - New analysis report
+- ✅ [analysisReport_000.txt](../analysis/v2/analysisReport_000.txt) - New analysis report
 - ✅ [test_improvements.bat](test_improvements.bat) - Easy validation script
 
 ---

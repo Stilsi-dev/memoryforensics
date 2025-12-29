@@ -64,7 +64,7 @@
   - Expected impact metrics
 
 ### Test Results
-- ✅ **analysis/analysisReport_026.txt**
+- ✅ **analysis/analysisReport_000.txt**
   - New report with improvements
   - Shows: 3 real threats, 0 false positives
   - Perfect severity classification
@@ -157,7 +157,7 @@
 
 ### Demo Assets Available
 - ✅ Old report (025) for comparison
-- ✅ New report (026) with improvements
+- ✅ New report (000) with improvements
 - ✅ Validation test script (no memory dump needed)
 - ✅ GUI interface for live demo
 - ✅ CLI for technical deep-dive

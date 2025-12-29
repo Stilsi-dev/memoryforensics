@@ -1,6 +1,6 @@
 # 📊 Before & After Analysis Report Comparison
 
-## Side-by-Side Comparison: analysisReport_025.txt vs analysisReport_026.txt
+## Side-by-Side Comparison: analysisReport_025.txt vs analysisReport_000.txt
 
 ---
 
@@ -24,7 +24,7 @@ Processes with HIGH-Confidence YARA: 1
 - Unreadable and unusable for real incident response
 ```
 
-### AFTER (Version 2.0 - analysisReport_026.txt)
+### AFTER (Version 2.0 - analysisReport_000.txt)
 ```
 SUMMARY
 ============================================================
@@ -286,4 +286,4 @@ RESULT: Tool becomes trusted, enables effective incident response
 ---
 
 *Generated: December 30, 2025*  
-*Comparison: analysisReport_025.txt (v1) vs analysisReport_026.txt (v2)*
+*Comparison: analysisReport_025.txt (v1) vs analysisReport_000.txt (v2)*
