@@ -1,0 +1,26 @@
+MEMORY FORENSIC ANALYSIS REPORT (Windows-only)
+============================================================
+Generated: 2025-12-30 05:39:20
+Analyzed: memdump.mem
+
+SUMMARY
+============================================================
+Total Processes: 48
+Suspicious Processes (>= Medium): 3
+Processes with ANY YARA Matches: 0
+Processes with HIGH-Confidence YARA Matches: 0
+  Critical: 0 | High: 3 | Medium: 0
+
+TOP SUSPICIOUS PROCESSES
+============================================================
+PID:   2496 | PPID:   2368 | Severity: High     | explorer.exe
+  Flags: malfind hits: 3, Suspicious VAD protections (RX/RWX private)
+
+PID:   3920 | PPID:   2496 | Severity: High     | notepad.exe
+  Flags: malfind hits: 1, Suspicious VAD protections (RX/RWX private)
+
+PID:   1888 | PPID:   2496 | Severity: High     | iexplore.exe
+  Flags: malfind hits: 3, Suspicious VAD protections (RX/RWX private)
+
+YARA SUMMARY (Deduped by PID)
+============================================================
