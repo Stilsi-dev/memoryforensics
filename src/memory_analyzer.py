@@ -23,14 +23,16 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 VOLATILITY_PATH = os.path.join("volatility3", "vol.py")
 YARA_RULES_FILE = os.path.join("rules", "malware_rules.yar")
 MAX_RETRIES = 3
 RETRY_DELAY = 0.5
+STEP_PAUSE = 0.5  # Short pause between phases so UI can surface updates
 
 # Legitimate Windows system processes
 WINDOWS_SYSTEM_PROCESSES = {
@@ -413,7 +415,7 @@ class MemoryAnalyzer:
 
         return processes
 
-    def scan_dlls(self, memory_file: str, processes: Dict[int, ProcessInfo]) -> Dict[int, ProcessInfo]:
+    def scan_dlls(self, memory_file: str, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 10, progress_end: int = 35) -> Dict[int, ProcessInfo]:
         print(f"[*] Scanning DLLs for {len(processes)} processes (parallel)...")
         
         def _scan_dll_single(pid_p_tuple: Tuple[int, ProcessInfo]) -> Tuple[int, List[str], List[str], List[str]]:
@@ -448,18 +450,23 @@ class MemoryAnalyzer:
             
             return pid, sorted(set(paths)), sorted(set(suspicious)), sorted(set(unsigned))
         
+        total = max(1, len(processes))
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = executor.map(_scan_dll_single, list(processes.items()))
             for idx, (pid, dll_paths, suspicious_dlls, unsigned_dlls) in enumerate(results, 1):
                 if idx % 10 == 0:
                     print(f"    [{idx}/{len(processes)}] DLL scanning progress...")
+                if progress_cb and idx % 5 == 0:
+                    frac = idx / total
+                    pct = progress_start + int(frac * (progress_end - progress_start))
+                    progress_cb(pct, "Scanning DLLs")
                 processes[pid].dll_paths = dll_paths
                 processes[pid].suspicious_dlls = suspicious_dlls
                 processes[pid].unsigned_dlls = unsigned_dlls
 
         return processes
 
-    def detect_injection_anomalies(self, memory_file: str, processes: Dict[int, ProcessInfo]) -> Dict[int, ProcessInfo]:
+    def detect_injection_anomalies(self, memory_file: str, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 35, progress_end: int = 60) -> Dict[int, ProcessInfo]:
         """Enhanced detection with RDI and process hollowing indicators (Enhancement #6)."""
         print(f"[*] Detecting injection anomalies (parallel - 4 workers)...")
         
@@ -543,11 +550,16 @@ class MemoryAnalyzer:
             
             return pid, malfind_hits, ldr_anomalies, vad_suspicious, rdi_indicators, hollowing_risk
         
+        total = max(1, len(processes))
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = executor.map(_scan_anomalies_single, list(processes.items()))
             for idx, (pid, malfind_hits, ldr_anomalies, vad_suspicious, rdi_indicators, hollowing_risk) in enumerate(results, 1):
                 if idx % 10 == 0:
                     print(f"    [{idx}/{len(processes)}] Anomaly detection progress...")
+                if progress_cb and idx % 5 == 0:
+                    frac = idx / total
+                    pct = progress_start + int(frac * (progress_end - progress_start))
+                    progress_cb(pct, "Analyzing injections")
                 processes[pid].malfind_hits = malfind_hits
                 processes[pid].ldr_anomalies = ldr_anomalies
                 processes[pid].vad_suspicious = vad_suspicious
@@ -558,13 +570,27 @@ class MemoryAnalyzer:
 
     # ---------- Network connections with advanced analysis (Enhancement #5) ----------
 
-    def scan_network_connections(self, memory_file: str, processes: Dict[int, ProcessInfo]) -> Dict[int, ProcessInfo]:
+    def scan_network_connections(self, memory_file: str, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 60, progress_end: int = 70) -> Dict[int, ProcessInfo]:
         """Enhanced network scanning with port significance and C2 detection."""
         print("[*] Scanning network connections...")
-        try:
-            netscan = self.run_volatility_json("windows.netscan", memory_file)
-        except Exception as e:
-            print(f"[!] Network scan failed: {e}")
+        
+        # Try multiple network plugins (availability varies by Volatility version)
+        netscan = None
+        network_plugins = ["windows.netstat", "windows.netscan"]
+        
+        for plugin in network_plugins:
+            try:
+                netscan = self.run_volatility_json(plugin, memory_file)
+                print(f"[+] Using {plugin} plugin")
+                break
+            except Exception:
+                continue
+        
+        if not netscan:
+            print(f"[!] Network scanning not available (no compatible plugin found in Volatility)")
+            print(f"[!] Skipping network analysis - continuing with other forensic checks...")
+            if progress_cb:
+                progress_cb(progress_end, "Network scan skipped")
             return processes
 
         def _pid(v: Any) -> Optional[int]:
@@ -573,7 +599,8 @@ class MemoryAnalyzer:
             except Exception:
                 return None
 
-        for row in netscan:
+        total_rows = max(1, len(netscan))
+        for idx, row in enumerate(netscan, 1):
             pid = _pid(row.get("PID"))
             if pid is None or pid not in processes:
                 continue
@@ -603,6 +630,11 @@ class MemoryAnalyzer:
                     "significance": port_sig,
                     "remote_addr": remote_addr
                 })
+
+            if progress_cb and idx % 25 == 0:
+                frac = idx / total_rows
+                pct = progress_start + int(frac * (progress_end - progress_start))
+                progress_cb(pct, "Scanning network")
 
         print(f"[+] Network scan complete: {sum(len(p.network_connections) for p in processes.values())} connections found\n")
         return processes
@@ -656,11 +688,12 @@ class MemoryAnalyzer:
 
     # ---------- Hashing ----------
 
-    def calculate_process_hashes(self, processes: Dict[int, ProcessInfo]) -> Dict[int, Dict[str, str]]:
+    def calculate_process_hashes(self, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 75, progress_end: int = 82) -> Dict[int, Dict[str, str]]:
         """Calculate MD5/SHA256 hashes."""
         hashes: Dict[int, Dict[str, str]] = {}
+        total = max(1, len(processes))
         
-        for pid, proc in processes.items():
+        for idx, (pid, proc) in enumerate(processes.items(), 1):
             file_hashes = {}
             
             try:
@@ -682,6 +715,10 @@ class MemoryAnalyzer:
                 if self.debug:
                     print(f"[DEBUG] Hash error for PID {pid}: {e}")
         
+            if progress_cb and idx % 20 == 0:
+                frac = idx / total
+                pct = progress_start + int(frac * (progress_end - progress_start))
+                progress_cb(pct, "Hashing artifacts")
         return hashes
 
     def generate_attack_timeline(self, processes: Dict[int, ProcessInfo]) -> List[Dict[str, Any]]:
@@ -734,9 +771,10 @@ class MemoryAnalyzer:
             "note": "Threat intelligence integration available - requires API keys"
         }
 
-    def scan_registry_persistence(self, processes: Dict[int, ProcessInfo]) -> Dict[int, List[str]]:
+    def scan_registry_persistence(self, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 82, progress_end: int = 88) -> Dict[int, List[str]]:
         """Scan registry for persistence mechanisms (Run keys, services, scheduled tasks) - v3.3."""
         registry_artifacts: Dict[int, List[str]] = {}
+        total = max(1, len(processes))
         
         # Registry persistence indicators by process
         persistence_indicators = {
@@ -763,7 +801,7 @@ class MemoryAnalyzer:
             ],
         }
         
-        for pid, proc in processes.items():
+        for idx, (pid, proc) in enumerate(processes.items(), 1):
             artifacts = []
             
             # Check if process is in persistence indicators list
@@ -777,6 +815,10 @@ class MemoryAnalyzer:
             if artifacts:
                 registry_artifacts[pid] = artifacts
                 proc.registry_artifacts = artifacts
+            if progress_cb and idx % 20 == 0:
+                frac = idx / total
+                pct = progress_start + int(frac * (progress_end - progress_start))
+                progress_cb(pct, "Scanning registry")
         
         return registry_artifacts
 
@@ -905,11 +947,12 @@ class MemoryAnalyzer:
 
     # ---------- Risk Scoring (Enhancement #3) ----------
 
-    def calculate_risk_scores(self, processes: Dict[int, ProcessInfo]) -> Dict[int, float]:
+    def calculate_risk_scores(self, processes: Dict[int, ProcessInfo], progress_cb: Optional[Callable[[int, str], None]] = None, progress_start: int = 88, progress_end: int = 93) -> Dict[int, float]:
         """Multi-factor behavioral risk scoring."""
         scores: Dict[int, float] = {}
+        total = max(1, len(processes))
         
-        for pid, proc in processes.items():
+        for idx, (pid, proc) in enumerate(processes.items(), 1):
             risk = 0.0
             
             # Code Injection (0-30 points)
@@ -949,6 +992,10 @@ class MemoryAnalyzer:
             risk = min(100.0, risk)  # Cap at 100
             proc.risk_score = risk
             scores[pid] = risk
+            if progress_cb and idx % 20 == 0:
+                frac = idx / total
+                pct = progress_start + int(frac * (progress_end - progress_start))
+                progress_cb(pct, "Calculating risk scores")
         
         return scores
 
@@ -1144,7 +1191,12 @@ class MemoryAnalyzer:
                 do_yara: bool,
                 prefer_volatility_yara: bool,
                 dump_dir: Optional[str],
-                case_number: str = "") -> Dict[int, ProcessInfo]:
+                case_number: str = "",
+                progress_cb: Optional[Callable[[int, str], None]] = None) -> Dict[int, ProcessInfo]:
+        def _maybe_pause() -> None:
+            if progress_cb:
+                time.sleep(STEP_PAUSE)
+
         print("\n" + "="*60)
         print("MEMORY FORENSIC ANALYZER v3.4 - Enhanced Analysis Started")
         print("="*60)
@@ -1153,10 +1205,17 @@ class MemoryAnalyzer:
         analysis_start = _dt.datetime.now().isoformat(sep=" ", timespec="seconds")
         
         # Validate memory dump (Extended Feature #8)
+        if progress_cb:
+            progress_cb(2, "Validating memory dump")
+            _maybe_pause()
+
         valid, message, evidence_hashes = self.validate_memory_dump(memory_file)
         if not valid:
             print(f"[!] Memory dump validation failed: {message}")
             raise ValueError(f"Invalid memory dump: {message}")
+        if progress_cb:
+            progress_cb(5, "Hashes computed")
+            _maybe_pause()
         
         # Initialize forensic metadata (Professional Standards)
         self.forensic_metadata = ForensicReportMetadata(
@@ -1168,38 +1227,51 @@ class MemoryAnalyzer:
         )
         
         # Phase 1: Extract processes
+        if progress_cb:
+            progress_cb(10, "Enumerating processes")
+            _maybe_pause()
         processes = self.get_processes(memory_file)
         print(f"[+] Found {len(processes)} processes")
+        if progress_cb:
+            progress_cb(12, "Processes enumerated")
+            _maybe_pause()
 
         # Phase 2 & 3: DLL scanning and injection detection
         print("[*] Running analysis: DLL scanning & injection detection...\n")
-        processes = self.scan_dlls(memory_file, processes)
+        processes = self.scan_dlls(memory_file, processes, progress_cb=progress_cb, progress_start=12, progress_end=35)
         print("[+] DLL scanning complete")
-        
-        processes = self.detect_injection_anomalies(memory_file, processes)
+        processes = self.detect_injection_anomalies(memory_file, processes, progress_cb=progress_cb, progress_start=35, progress_end=60)
         print("[+] Injection detection complete\n")
+        _maybe_pause()
 
         # Phase 4: Network connection analysis
-        processes = self.scan_network_connections(memory_file, processes)
+        processes = self.scan_network_connections(memory_file, processes, progress_cb=progress_cb, progress_start=60, progress_end=70)
+        _maybe_pause()
 
         # Phase 5: Build process tree
+        if progress_cb:
+            progress_cb(70, "Building process tree")
         processes = self.build_process_tree(processes)
         print("[+] Process tree built\n")
+        _maybe_pause()
         
         # Phase 6: Hash calculation
         print("[*] Calculating process and DLL hashes...")
-        self.calculate_process_hashes(processes)
+        self.calculate_process_hashes(processes, progress_cb=progress_cb, progress_start=70, progress_end=82)
         print("[+] Hash calculation complete\n")
+        _maybe_pause()
         
         # Phase 7: Registry persistence
         print("[*] Scanning registry for persistence mechanisms...")
-        self.scan_registry_persistence(processes)
+        self.scan_registry_persistence(processes, progress_cb=progress_cb, progress_start=82, progress_end=88)
         print("[+] Registry scanning complete\n")
+        _maybe_pause()
 
         # Phase 8: Risk scoring (Enhancement #3)
         print("[*] Calculating multi-factor risk scores...")
-        self.calculate_risk_scores(processes)
+        self.calculate_risk_scores(processes, progress_cb=progress_cb, progress_start=88, progress_end=93)
         print("[+] Risk scoring complete\n")
+        _maybe_pause()
 
         if do_yara:
             pids = sorted(processes.keys())
@@ -1215,10 +1287,21 @@ class MemoryAnalyzer:
             for pid, rules in yara_by_pid.items():
                 if pid in processes:
                     processes[pid].yara_matches = sorted(set(rules))
+            if progress_cb:
+                progress_cb(98, "YARA scan done")
+                _maybe_pause()
+        else:
+            if progress_cb:
+                progress_cb(95, "Skipping YARA")
+                _maybe_pause()
 
         # Complete forensic metadata
         if self.forensic_metadata:
             self.forensic_metadata.analysis_end = _dt.datetime.now().isoformat(sep=" ", timespec="seconds")
+
+        if progress_cb:
+            progress_cb(100, "Analysis complete")
+            _maybe_pause()
         
         return processes
 

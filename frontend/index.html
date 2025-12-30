@@ -8,26 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
-  <style>
-    .tabs { display: flex; gap: 0; margin: 20px 0; border-bottom: 2px solid #f0f0f0; }
-    .tab-button { 
-      padding: 12px 20px; background: transparent; border: none; cursor: pointer; 
-      border-bottom: 3px solid transparent; transition: all 0.3s; margin-bottom: -2px;
-      font-family: inherit; font-size: 1em; color: #666;
-    }
-    .tab-button:hover { color: #333; }
-    .tab-button.active { color: #000; border-bottom-color: #000; font-weight: 600; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    .ioc-table { width: 100%; border-collapse: collapse; margin: 15px 0; font-family: monospace; font-size: 0.9em; }
-    .ioc-table th, .ioc-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
-    .ioc-table th { background: #f9f9f9; font-weight: 600; }
-    .timeline-event { padding: 12px; margin: 10px 0; background: #f9f9f9; border-left: 3px solid #333; border-radius: 3px; }
-    .timeline-event .time { font-size: 0.85em; color: #999; }
-    .timeline-event .text { color: #333; margin-top: 5px; font-size: 0.95em; }
-    .export-btn { background: #333; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; }
-    .export-btn:hover { background: #000; }
-  </style>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
   <div class="page">
@@ -49,8 +30,12 @@
         </div>
       </div>
       <form id="upload-form" class="upload">
-        <input type="file" id="file-input" name="file" accept=".mem,.raw,.bin" required />
-        <input type="text" id="api-key-input" placeholder="API Key (optional)" style="flex: 0 0 200px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95em;" />
+        <label for="file-input" class="file-input-label">
+          <input type="file" id="file-input" name="file" accept=".mem,.raw,.bin" required />
+          <span class="file-input-text">📁 Choose file</span>
+          <span class="file-input-name" id="file-name"></span>
+        </label>
+        <input type="text" id="api-key-input" placeholder="API Key (optional)" style="flex: 0 0 200px; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.95em; background: var(--panel); color: var(--text);" />
         <button type="submit">Upload</button>
         <span id="upload-msg" class="muted"></span>
       </form>
@@ -70,48 +55,131 @@
 
     <section class="grid" id="dashboard-section" style="display: none;">
       <div class="panel" id="dashboard-panel" style="grid-column: 1/-1;">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Analysis</p>
-            <h2 id="dashboard-title">Case Details</h2>
-            <p class="sub" id="dashboard-meta"></p>
+        <div class="panel-header dashboard-header">
+          <div class="dashboard-title-block">
+            <div class="dashboard-title-row">
+              <p class="eyebrow">Analysis</p>
+              <div id="caseStatus"></div>
+            </div>
+            <div class="dashboard-name-row">
+              <h2 id="dashboard-title">Case Details</h2>
+              <p class="sub" id="dashboard-meta"></p>
+            </div>
           </div>
-          <button id="refresh-case" class="ghost">Refresh now</button>
-          <button id="close-case" class="ghost" onclick="closeDashboard()" style="margin-left: 10px;">Close</button>
+          <div class="dashboard-actions">
+            <button id="refresh-case" class="ghost">Refresh now</button>
+            <button id="close-case" class="ghost" onclick="closeDashboard()">Close</button>
+          </div>
+        </div>
+
+        <div id="dashboardError" class="error" style="display: none;"></div>
+
+        <!-- Summary Stats -->
+        <div id="dashboard-stats" class="dashboard-stats" style="display: none;">
+          <div class="stat-card">
+            <div class="stat-label">Total Processes</div>
+            <div class="stat-value" id="stat-process-count">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Threat Level</div>
+            <div class="stat-value threat-level" id="stat-threat-level">UNKNOWN</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Suspicious Processes</div>
+            <div class="stat-value" id="stat-suspicious-count">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Network Connections</div>
+            <div class="stat-value" id="stat-network-count">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Risk Score</div>
+            <div class="stat-value" id="stat-risk-score">0%</div>
+          </div>
         </div>
 
         <!-- Tabs -->
         <div class="tabs">
-          <button class="tab-button active" onclick="switchTab(event, 'threats')">📊 Threats</button>
+          <button class="tab-button active" onclick="switchTab(event, 'threats')">🎯 Threats</button>
           <button class="tab-button" onclick="switchTab(event, 'processes')">🌳 Processes</button>
-          <button class="tab-button" onclick="switchTab(event, 'timeline')">📈 Timeline</button>
-          <button class="tab-button" onclick="switchTab(event, 'iocs')">🎯 IOCs</button>
+          <button class="tab-button" onclick="switchTab(event, 'timeline')">📊 Timeline</button>
+          <button class="tab-button" onclick="switchTab(event, 'iocs')">🔗 IOCs</button>
         </div>
 
         <!-- Threats Tab -->
         <div id="threats" class="tab-content active">
-          <div id="threat-cards" class="cards"></div>
+          <div class="tab-controls">
+            <label>
+              <input type="checkbox" id="hide-low-threats" checked />
+              <span>Hide low severity</span>
+            </label>
+          </div>
+          <div id="threat-cards" class="threat-grid"></div>
         </div>
 
-        <!-- Processes Tab -->
+        <!-- Processes Tab (ASCII + D3.js) -->
         <div id="processes" class="tab-content">
-          <div id="tree" class="tree"></div>
+          <div class="tab-controls">
+            <input type="text" id="process-search" placeholder="Search processes..." class="search-box" />
+          </div>
+          <div id="processes-d3-container" style="display: none;"></div>
+          <div id="tree" class="tree" style="display: block;"></div>
         </div>
 
         <!-- Timeline Tab -->
         <div id="timeline" class="tab-content">
-          <div id="timeline-container"></div>
+          <div class="tab-controls">
+            <label>
+              <input type="checkbox" id="hide-low-timeline" />
+              <span>Hide low severity</span>
+            </label>
+            <div class="timeline-sort-controls">
+              <label for="timeline-sort-by" class="sort-label">Sort</label>
+              <select id="timeline-sort-by" class="sort-select">
+                <option value="timestamp">Time</option>
+                <option value="risk">Risk score</option>
+                <option value="severity">Severity</option>
+              </select>
+              <button id="timeline-sort-dir" class="sort-btn" type="button" data-dir="desc">Desc</button>
+            </div>
+          </div>
+          <div id="timeline-d3-container" style="display: none;"></div>
+          <div id="timeline-container" style="display: block;"></div>
         </div>
 
         <!-- IOCs Tab -->
         <div id="iocs" class="tab-content">
+          <div class="tab-controls">
+            <input type="text" id="ioc-search" placeholder="Search IOCs..." class="search-box" />
+            <button class="export-btn" id="export-iocs-btn" onclick="exportIOCs()" style="display: none;">📥 Export IOCs</button>
+          </div>
+          <div id="network-graph-container" style="display: none;"></div>
           <div id="iocs-container"></div>
-          <button class="export-btn" id="export-iocs-btn" onclick="exportIOCs()" style="display: none;">📥 Export IOCs as CSV</button>
         </div>
       </div>
     </section>
   </div>
 
+  <script defer src="./d3-visualizations.js"></script>
   <script defer src="./app.js"></script>
+
+  <!-- Threat detail modal -->
+  <div id="threat-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeThreatModal()"></div>
+    <div class="modal-dialog" role="dialog" aria-modal="true">
+      <button class="modal-close" type="button" aria-label="Close" onclick="closeThreatModal()">×</button>
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Threat detail</p>
+          <h3 id="threat-modal-title">Threat</h3>
+        </div>
+        <div class="modal-badges">
+          <span id="threat-modal-severity" class="severity-pill">SEVERITY</span>
+          <span id="threat-modal-score" class="score-chip">0%</span>
+        </div>
+      </div>
+      <div id="threat-modal-body" class="modal-body"></div>
+    </div>
+  </div>
 </body>
 </html>
