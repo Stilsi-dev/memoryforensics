@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Forensics Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    .tabs { display: flex; gap: 0; margin: 20px 0; border-bottom: 2px solid #f0f0f0; }
+    .tab-button { 
+      padding: 12px 20px; background: transparent; border: none; cursor: pointer; 
+      border-bottom: 3px solid transparent; transition: all 0.3s; margin-bottom: -2px;
+      font-family: inherit; font-size: 1em; color: #666;
+    }
+    .tab-button:hover { color: #333; }
+    .tab-button.active { color: #000; border-bottom-color: #000; font-weight: 600; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .ioc-table { width: 100%; border-collapse: collapse; margin: 15px 0; font-family: monospace; font-size: 0.9em; }
+    .ioc-table th, .ioc-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+    .ioc-table th { background: #f9f9f9; font-weight: 600; }
+    .timeline-event { padding: 12px; margin: 10px 0; background: #f9f9f9; border-left: 3px solid #333; border-radius: 3px; }
+    .timeline-event .time { font-size: 0.85em; color: #999; }
+    .timeline-event .text { color: #333; margin-top: 5px; font-size: 0.95em; }
+    .export-btn { background: #333; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+    .export-btn:hover { background: #000; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Phase 2 · Enhanced</p>
+        <h1>Memory Forensics Dashboard</h1>
+        <p class="lede">Upload a memory dump, review threats, inspect processes, analyze timeline, and extract IOCs.</p>
+      </div>
+      <div class="status-pill" id="api-status">Checking API…</div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Upload</p>
+          <h2>Submit a memory dump</h2>
+          <p class="sub">Supports .mem, .raw, .bin. Files are analyzed for threats, IOCs, and timeline events.</p>
+        </div>
+      </div>
+      <form id="upload-form" class="upload">
+        <input type="file" id="file-input" name="file" accept=".mem,.raw,.bin" required />
+        <input type="text" id="api-key-input" placeholder="API Key (optional)" style="flex: 0 0 200px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95em;" />
+        <button type="submit">Upload</button>
+        <span id="upload-msg" class="muted"></span>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Cases</p>
+          <h2>Recent uploads</h2>
+          <p class="sub">Select a case to view analysis, timeline, and IOCs.</p>
+        </div>
+        <button id="refresh-cases" class="ghost">Refresh</button>
+      </div>
+      <div id="cases-list" class="cases"></div>
+    </section>
+
+    <section class="grid" id="dashboard-section" style="display: none;">
+      <div class="panel" id="dashboard-panel" style="grid-column: 1/-1;">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Analysis</p>
+            <h2 id="dashboard-title">Case Details</h2>
+            <p class="sub" id="dashboard-meta"></p>
+          </div>
+          <button id="refresh-case" class="ghost">Refresh now</button>
+          <button id="close-case" class="ghost" onclick="closeDashboard()" style="margin-left: 10px;">Close</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab-button active" onclick="switchTab(event, 'threats')">📊 Threats</button>
+          <button class="tab-button" onclick="switchTab(event, 'processes')">🌳 Processes</button>
+          <button class="tab-button" onclick="switchTab(event, 'timeline')">📈 Timeline</button>
+          <button class="tab-button" onclick="switchTab(event, 'iocs')">🎯 IOCs</button>
+        </div>
+
+        <!-- Threats Tab -->
+        <div id="threats" class="tab-content active">
+          <div id="threat-cards" class="cards"></div>
+        </div>
+
+        <!-- Processes Tab -->
+        <div id="processes" class="tab-content">
+          <div id="tree" class="tree"></div>
+        </div>
+
+        <!-- Timeline Tab -->
+        <div id="timeline" class="tab-content">
+          <div id="timeline-container"></div>
+        </div>
+
+        <!-- IOCs Tab -->
+        <div id="iocs" class="tab-content">
+          <div id="iocs-container"></div>
+          <button class="export-btn" id="export-iocs-btn" onclick="exportIOCs()" style="display: none;">📥 Export IOCs as CSV</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script defer src="./app.js"></script>
+</body>
+</html>

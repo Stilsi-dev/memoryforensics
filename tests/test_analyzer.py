@@ -5,9 +5,11 @@ This will validate the improvements without running full analysis.
 """
 import os
 import sys
+from pathlib import Path
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(__file__))
+# Add src directory to path
+src_dir = Path(__file__).resolve().parent.parent / "src"
+sys.path.insert(0, str(src_dir))
 
 from memory_analyzer import MemoryAnalyzer, WINDOWS_SYSTEM_PROCESSES, YARA_CONFIDENCE
 
