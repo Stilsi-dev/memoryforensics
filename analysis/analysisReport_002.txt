@@ -1,0 +1,151 @@
+MEMORY FORENSIC ANALYSIS REPORT (Windows-only)
+============================================================
+Generated: 2025-12-30 06:49:49
+Analyzed: memdump.mem
+
+SUMMARY
+============================================================
+Total Processes: 48
+Suspicious Processes (>= Medium): 3
+Processes with ANY YARA Matches: 0
+Processes with HIGH-Confidence YARA Matches: 0
+  Critical: 0 | High: 3 | Medium: 0
+
+PROCESS TREE (Parent-Child Relationships)
+============================================================
+PROCESS TREE
+====================================================================================================
+└── PID      4 | System                         | 
+  └── PID    404 | smss.exe                       | 
+
+NETWORK CONNECTIONS
+============================================================
+PID      4 | System                         | TCPV4 0.0.0.0:1723 -> ?:? [LISTENING]
+PID      4 | System                         | TCPV4 0.0.0.0:445 -> ?:? [LISTENING]
+PID      4 | System                         | TCPV4 0.0.0.0:5357 -> ?:? [LISTENING]
+PID      4 | System                         | TCPV4 192.168.119.191:139 -> ?:? [LISTENING]
+PID      4 | System                         | TCPV6 :::445 -> ?:? [LISTENING]
+PID      4 | System                         | TCPV6 :::5357 -> ?:? [LISTENING]
+PID      4 | System                         | UDPV4 0.0.0.0:1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV4 0.0.0.0:1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV4 0.0.0.0:1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV4 0.0.0.0:1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV4 192.168.119.191:137 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV4 192.168.119.191:138 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV6 :::1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV6 :::1701 -> ?:? [UNKNOWN]
+PID      4 | System                         | UDPV6 :::1701 -> ?:? [UNKNOWN]
+PID    524 | wininit.exe                    | TCPV4 0.0.0.0:1025 -> ?:? [LISTENING]
+PID    524 | wininit.exe                    | TCPV4 0.0.0.0:1025 -> ?:? [LISTENING]
+PID    524 | wininit.exe                    | TCPV6 :::1025 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV4 0.0.0.0:1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV4 0.0.0.0:1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV4 0.0.0.0:1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV4 0.0.0.0:1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV4 0.0.0.0:1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV6 :::1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV6 :::1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV6 :::1031 -> ?:? [LISTENING]
+PID    604 | services.exe                   | TCPV6 :::1031 -> ?:? [LISTENING]
+PID    616 | lsass.exe                      | TCPV4 0.0.0.0:1030 -> ?:? [LISTENING]
+PID    616 | lsass.exe                      | TCPV4 0.0.0.0:1030 -> ?:? [LISTENING]
+PID    616 | lsass.exe                      | TCPV6 :::1030 -> ?:? [LISTENING]
+PID    848 | svchost.exe                    | TCPV4 0.0.0.0:135 -> ?:? [LISTENING]
+PID    848 | svchost.exe                    | TCPV4 0.0.0.0:135 -> ?:? [LISTENING]
+PID    848 | svchost.exe                    | TCPV6 :::135 -> ?:? [LISTENING]
+PID    884 | svchost.exe                    | TCPV4 0.0.0.0:1026 -> ?:? [LISTENING]
+PID    884 | svchost.exe                    | TCPV4 0.0.0.0:1026 -> ?:? [LISTENING]
+PID    884 | svchost.exe                    | TCPV6 :::1026 -> ?:? [LISTENING]
+PID   1000 | svchost.exe                    | TCPV4 0.0.0.0:1027 -> ?:? [LISTENING]
+PID   1000 | svchost.exe                    | TCPV4 0.0.0.0:1027 -> ?:? [LISTENING]
+PID   1000 | svchost.exe                    | TCPV6 :::1027 -> ?:? [LISTENING]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:4500 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:500 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:500 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:65013 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV6 ::1:65011 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV6 ::1:65012 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV6 :::500 -> ?:? [UNKNOWN]
+PID   1000 | svchost.exe                    | UDPV6 :::? -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:123 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:123 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:56152 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:56152 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:56153 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:56153 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::123 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::3702 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::56153 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::56153 -> ?:? [UNKNOWN]
+PID   1088 | svchost.exe                    | UDPV6 :::? -> ?:? [UNKNOWN]
+PID   1160 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1188 | svchost.exe                    | TCPV4 0.0.0.0:3389 -> ?:? [LISTENING]
+PID   1188 | svchost.exe                    | TCPV4 0.0.0.0:3389 -> ?:? [LISTENING]
+PID   1188 | svchost.exe                    | TCPV6 :::3389 -> ?:? [LISTENING]
+PID   1188 | svchost.exe                    | UDPV4 0.0.0.0:5355 -> ?:? [UNKNOWN]
+PID   1188 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1188 | svchost.exe                    | UDPV6 :::? -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | TCPV4 0.0.0.0:1028 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | TCPV4 0.0.0.0:1028 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | TCPV4 127.0.0.1:53 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | TCPV4 192.168.119.191:53 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | TCPV6 ::1:53 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | TCPV6 :::1028 -> ?:? [LISTENING]
+PID   1480 | dns.exe                        | UDPV4 0.0.0.0:51482 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV4 0.0.0.0:51483 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV4 127.0.0.1:53 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV4 192.168.119.191:53 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV6 ::1:53 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV6 ::1:56149 -> ?:? [UNKNOWN]
+PID   1480 | dns.exe                        | UDPV6 :::51483 -> ?:? [UNKNOWN]
+PID   1508 | ftpbasicsvr.exe                | TCPV4 0.0.0.0:21 -> ?:? [LISTENING]
+PID   1508 | ftpbasicsvr.exe                | TCPV4 0.0.0.0:8080 -> ?:? [LISTENING]
+PID   1576 | svchost.exe                    | TCPV4 0.0.0.0:1029 -> ?:? [LISTENING]
+PID   1576 | svchost.exe                    | TCPV4 0.0.0.0:1029 -> ?:? [LISTENING]
+PID   1576 | svchost.exe                    | TCPV6 :::1029 -> ?:? [LISTENING]
+PID   1576 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1576 | svchost.exe                    | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1576 | svchost.exe                    | UDPV6 :::? -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV4 0.0.0.0:161 -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV4 0.0.0.0:161 -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV4 0.0.0.0:52325 -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV4 0.0.0.0:? -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV6 :::161 -> ?:? [UNKNOWN]
+PID   1620 | snmp.exe                       | UDPV6 :::? -> ?:? [UNKNOWN]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1388 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1389 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1392 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1399 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1406 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1407 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1424 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1426 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | TCPV4 ?:1427 -> ?:? [CLOSED]
+PID   1888 | iexplore.exe                   | UDPV4 127.0.0.1:50461 -> ?:? [UNKNOWN]
+
+TOP SUSPICIOUS PROCESSES
+============================================================
+PID:   2496 | PPID:   2368 | Parent: userinit.exe         | Severity: High     | explorer.exe
+  Flags: malfind hits: 3, Suspicious VAD protections (RX/RWX private)
+
+PID:   3920 | PPID:   2496 | Parent: explorer.exe         | Severity: High     | notepad.exe
+  Flags: malfind hits: 1, Suspicious VAD protections (RX/RWX private)
+
+PID:   1888 | PPID:   2496 | Parent: explorer.exe         | Severity: High     | iexplore.exe
+  Flags: malfind hits: 3, Suspicious VAD protections (RX/RWX private), Network connections: 10
+  Network: TCPV4 ?:1399 -> ?:? [CLOSED]
+  Network: TCPV4 ?:1392 -> ?:? [CLOSED]
+  Network: TCPV4 ?:1424 -> ?:? [CLOSED]
+  Network: ...and 7 more
+
+YARA SUMMARY (Deduped by PID)
+============================================================

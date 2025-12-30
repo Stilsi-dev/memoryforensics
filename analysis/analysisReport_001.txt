@@ -1,6 +1,6 @@
 MEMORY FORENSIC ANALYSIS REPORT (Windows-only)
 ============================================================
-Generated: 2025-12-30 06:13:02
+Generated: 2025-12-30 06:27:12
 Analyzed: memdump.mem
 
 SUMMARY
